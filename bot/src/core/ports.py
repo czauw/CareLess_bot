@@ -16,6 +16,7 @@ from bot.src.core.models import (
     OperationResult,
     PlayersResult,
     ServerStatus,
+    ScopeType,
 )
 
 
@@ -52,7 +53,7 @@ class Store(Protocol):
         ...
 
     async def find_pending_approval(
-        self, scope_id: str, code_hash: str
+        self, scope_type: ScopeType, scope_id: str, code_hash: str
     ) -> OperationJob | None:
         """按作用域和确认码哈希查找待审批任务。"""
         ...

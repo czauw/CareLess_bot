@@ -37,6 +37,7 @@ class Runtime:
     context_service: Any = None
     persona_gate: Any = None
     responder: Any = None
+    group_conversation_service: Any = None
     command_handler: Any = None
     server_targets: dict[str, Any] = field(default_factory=dict)
 

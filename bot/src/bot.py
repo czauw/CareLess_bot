@@ -28,3 +28,7 @@ import bot.src.plugins.event_ingest.matcher  # noqa: E402, F401
 def run() -> None:
     """启动机器人。"""
     nonebot.run()
+
+
+if __name__ == "__main__":
+    run()

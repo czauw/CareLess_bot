@@ -7,6 +7,10 @@
 
 from __future__ import annotations
 
+import math
+import uuid
+from datetime import UTC, datetime
+
 from bot.src.core.models import NormalizedMessage, ScopeType
 from bot.src.core.ports import Store
 
@@ -18,16 +22,35 @@ class ContextService:
         self,
         store: Store,
         *,
-        max_messages: int = 30,
-        ttl_seconds: int = 1200,
+        max_messages: int = 1_000,
+        max_tokens: int = 20_000,
+        ttl_seconds: int = 21_600,
     ) -> None:
         self._store = store
         self._max_messages = max_messages
+        self._max_tokens = max_tokens
         self._ttl_seconds = ttl_seconds
 
     async def append(self, message: NormalizedMessage) -> None:
         """将消息追加到对应群的上下文窗口。"""
         await self._store.append_context(message)
+
+    async def append_bot_reply(self, trigger: NormalizedMessage, text: str) -> None:
+        """将成功发送的机器人回复写入同一线性上下文。"""
+        await self.append(
+            NormalizedMessage(
+                message_id=f"bot-{uuid.uuid4().hex}",
+                sender_id="bot",
+                sender_alias="bot",
+                scope_type=trigger.scope_type,
+                scope_id=trigger.scope_id,
+                text=text,
+                message_type="text",
+                reply_to=trigger.message_id,
+                is_at_bot=False,
+                created_at=datetime.now(UTC),
+            )
+        )
 
     async def get_recent(
         self,
@@ -37,9 +60,31 @@ class ContextService:
         limit: int | None = None,
     ) -> list[NormalizedMessage]:
         """获取最近 N 条上下文（用于构造 LLM 提示）。"""
-        return await self._store.get_context(
+        messages = await self._store.get_context(
             self.scope_key(scope_type, scope_id), limit=limit or self._max_messages
         )
+        return self._within_token_budget(messages)
+
+    def _within_token_budget(
+        self, messages: list[NormalizedMessage]
+    ) -> list[NormalizedMessage]:
+        """从最新消息向前取满近似 token 预算，保持线性顺序。"""
+        selected: list[NormalizedMessage] = []
+        remaining = self._max_tokens
+        for message in reversed(messages):
+            cost = self.estimate_message_tokens(message)
+            if selected and cost > remaining:
+                break
+            selected.append(message)
+            remaining -= cost
+        return list(reversed(selected))
+
+    @staticmethod
+    def estimate_message_tokens(message: NormalizedMessage) -> int:
+        """保守估算中英文混合文本 token 数，避免依赖特定模型 tokenizer。"""
+        ascii_chars = sum(character.isascii() for character in message.text)
+        non_ascii_chars = len(message.text) - ascii_chars
+        return max(1, non_ascii_chars + math.ceil(ascii_chars / 4) + 4)
 
     @staticmethod
     def scope_key(scope_type: ScopeType, scope_id: str) -> str:

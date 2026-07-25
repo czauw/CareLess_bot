@@ -45,6 +45,8 @@ async def route_message(bot: Bot, event: MessageEvent, matcher: Matcher) -> None
     runtime = get_runtime()
     if runtime.store is None or runtime.command_handler is None:
         return
+    if not runtime.config.bot_enabled:
+        return
     if runtime.config.bot_qq_id and str(event.user_id) == runtime.config.bot_qq_id:
         return
 
@@ -61,7 +63,10 @@ async def route_message(bot: Bot, event: MessageEvent, matcher: Matcher) -> None
         runtime.command_handler._parser.parse(message.text)
     except CommandParseError:
         if message.text.strip().startswith("/"):
-            if runtime.auth_service.is_whitelisted(message.sender_id):
+            if (
+                runtime.config.admin_commands_enabled
+                and runtime.auth_service.is_whitelisted(message.sender_id)
+            ):
                 await _send(bot, event, runtime.command_handler.HELP_TEXT)
             return
         await _handle_persona(bot, event, message)
@@ -80,20 +85,61 @@ async def route_message(bot: Bot, event: MessageEvent, matcher: Matcher) -> None
 
 async def _handle_persona(bot: Bot, event: MessageEvent, message: Any) -> None:
     runtime = get_runtime()
-    if message.scope_type == ScopeType.GROUP:
+    if not runtime.config.persona_enabled:
+        return
+    is_admin = runtime.auth_service.is_whitelisted(message.sender_id)
+    record_gate_reply = False
+
+    if is_admin:
+        # 管理员只在 @ 或私聊时即时触发；默认绕过群白名单和冷却。
+        if not (message.is_at_bot or message.scope_type == ScopeType.PRIVATE):
+            return
+        if (
+            message.scope_type == ScopeType.GROUP
+            and not runtime.config.admin_bypass_group_allowlist
+            and runtime.config.allowed_group_ids
+            and message.scope_id not in runtime.config.allowed_group_ids
+        ):
+            return
+        if not runtime.config.admin_bypass_cooldowns:
+            decision = runtime.persona_gate.evaluate(message)
+            if not decision.should_reply:
+                return
+            record_gate_reply = True
+    elif message.scope_type == ScopeType.PRIVATE:
+        if not runtime.config.guest_private_reply_enabled:
+            return
+        decision = runtime.persona_gate.evaluate(message)
+        if not decision.should_reply:
+            return
+        record_gate_reply = True
+    else:
         allowed_groups = runtime.config.allowed_group_ids
         if allowed_groups and message.scope_id not in allowed_groups:
             return
+        decision = runtime.group_conversation_service.evaluate(message)
+        if not decision.should_reply:
+            return
 
-    await runtime.context_service.append(message)
+    if runtime.config.persona_context_enabled:
+        await runtime.context_service.append(message)
     decision = runtime.persona_gate.evaluate(message)
     if not decision.should_reply:
         return
-    context = await runtime.context_service.get_recent(
-        message.scope_id,
-        scope_type=message.scope_type,
+    context = (
+        await runtime.context_service.get_recent(
+            message.scope_id,
+            scope_type=message.scope_type,
+        )
+        if runtime.config.persona_context_enabled
+        else [message]
     )
     response = await runtime.responder.generate(message, context)
     if response:
         await _send(bot, event, response)
-        runtime.persona_gate.record_reply(message)
+        if runtime.config.persona_context_enabled:
+            await runtime.context_service.append_bot_reply(message, response)
+        if not is_admin and message.scope_type == ScopeType.GROUP:
+            runtime.group_conversation_service.record_reply(message)
+        elif record_gate_reply:
+            runtime.persona_gate.record_reply(message)

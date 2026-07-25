@@ -14,6 +14,7 @@ from bot.src.core.models import (
     NormalizedMessage,
     OperationJob,
     OperationState,
+    ScopeType,
 )
 
 
@@ -94,12 +95,13 @@ class MemoryStore:
         return self._jobs.get(operation_id)
 
     async def find_pending_approval(
-        self, scope_id: str, code_hash: str
+        self, scope_type: ScopeType, scope_id: str, code_hash: str
     ) -> OperationJob | None:
         """按作用域和确认码哈希查找待审批任务。"""
         for job in self._jobs.values():
             if (
-                job.request.scope_id == scope_id
+                job.request.scope_type == scope_type
+                and job.request.scope_id == scope_id
                 and job.approval_code_hash == code_hash
                 and job.state == OperationState.PENDING_APPROVAL
             ):
@@ -125,6 +127,11 @@ class MemoryStore:
     async def append_audit(self, event: AuditEvent) -> None:
         """追加审计事件。"""
         self._audit_log.append(event)
+
+    @property
+    def audit_events(self) -> tuple[AuditEvent, ...]:
+        """返回审计快照，供测试和未来只读审计接口使用。"""
+        return tuple(self._audit_log)
 
     # ---- 管理 ----
 

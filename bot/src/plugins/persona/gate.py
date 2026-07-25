@@ -45,6 +45,8 @@ class PersonaGate:
         quiet_end: str = "07:30",
         bot_qq_id: str = "",
         timezone: str = "Asia/Shanghai",
+        hard_trigger_enabled: bool = True,
+        soft_trigger_enabled: bool = True,
     ) -> None:
         self._active_prob = active_probability
         self._group_cooldown = group_cooldown_seconds
@@ -54,6 +56,8 @@ class PersonaGate:
         self._quiet_end = quiet_end
         self._bot_qq_id = bot_qq_id
         self._timezone = ZoneInfo(timezone)
+        self._hard_trigger_enabled = hard_trigger_enabled
+        self._soft_trigger_enabled = soft_trigger_enabled
 
         # 冷却追踪
         self._group_last_reply: dict[str, float] = {}
@@ -86,6 +90,8 @@ class PersonaGate:
 
         # 硬触发也必须受群和用户冷却限制。
         if self.is_hard_trigger(msg):
+            if not self._hard_trigger_enabled:
+                return GateResult(TriggerType.NONE, should_reply=False, reason="硬触发已关闭")
             if not self._within_cooldown(msg, now):
                 return GateResult(TriggerType.NONE, should_reply=False, reason="回复冷却中")
             return GateResult(TriggerType.HARD, should_reply=True, reason="硬触发")
@@ -95,6 +101,8 @@ class PersonaGate:
             return GateResult(TriggerType.NONE, should_reply=False, reason="夜间静默")
 
         # 群级冷却
+        if not self._soft_trigger_enabled:
+            return GateResult(TriggerType.NONE, should_reply=False, reason="软触发已关闭")
         if not self._within_cooldown(msg, now):
             return GateResult(TriggerType.NONE, should_reply=False, reason="回复冷却中")
 

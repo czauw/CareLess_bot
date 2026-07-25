@@ -5,6 +5,15 @@
 # 未指定的项将使用 config.py 中的默认值。
 
 persona:
+  # 人格细节默认值。对应 PERSONA_* 环境变量存在时，环境变量优先。
+  # PERSONA_ENABLED 是全模块开关，在 bot/.env 中配置。
+
+  # 是否允许 @ 机器人或私聊等硬触发回复。
+  hard_trigger_enabled: true
+
+  # 是否允许按概率主动回复。建议保持 false，普通成员改由 @ 开启短会话。
+  soft_trigger_enabled: false
+
   # 基础主动概率（候选消息的 2%）
   active_probability: 0.02
 
@@ -15,8 +24,8 @@ persona:
   # 每小时最大主动回复数
   max_active_replies_per_hour: 3
 
-  # 回复最大长度（汉字）
-  max_reply_length: 80
+  # 回复最大长度。代码强制限制为一行、20 字以内并移除标点。
+  max_reply_length: 20
 
   # 夜间静默时段（时区由 TIMEZONE 决定）
   quiet_start: "00:30"

@@ -75,6 +75,9 @@ class CommandHandler:
         """处理管理命令并返回响应文本。"""
         runtime = get_runtime()
 
+        if not runtime.config.admin_commands_enabled:
+            return "管理命令当前未启用。"
+
         # 1. 权限校验
         if not runtime.auth_service.is_whitelisted(sender_id):
             raise NotWhitelistedError(sender_id)
@@ -100,10 +103,10 @@ class CommandHandler:
             return await self._handle_job_query(cmd)
 
         if cmd.kind == "approve":
-            return await self._handle_approve(cmd, sender_id, scope_id)
+            return await self._handle_approve(cmd, sender_id, scope_type, scope_id)
 
         if cmd.kind == "cancel":
-            return await self._handle_cancel(cmd, sender_id, scope_id)
+            return await self._handle_cancel(cmd, sender_id, scope_type, scope_id)
 
         return "未知命令，发送 /帮助 查看可用命令。"
 
@@ -127,8 +130,16 @@ class CommandHandler:
         risk = ACTION_RISK[action]
 
         runtime = get_runtime()
+        if not runtime.config.ops_enabled:
+            return "服务器运维功能当前未启用。"
+        if risk == RiskLevel.R0 and not runtime.config.ops_read_enabled:
+            return "服务器查询功能当前未启用。"
+        if risk != RiskLevel.R0 and not runtime.config.ops_write_enabled:
+            return "服务器操作功能当前未启用。"
         target = runtime.server_targets.get(cmd.server_id)
-        if target is None or action.value not in target.capabilities:
+        if target is None or not target.enabled:
+            return f"服务器 {cmd.server_id} 当前未启用。"
+        if action.value not in target.capabilities:
             return f"服务器 {cmd.server_id} 不支持操作 {action.value}。"
 
         # R3 拒绝
@@ -136,9 +147,18 @@ class CommandHandler:
             raise RiskLevelBlockedError(risk.value)
 
         # R0/R1 直接执行（R1 可配置确认，当前默认无需确认）
-        if risk in (RiskLevel.R0, RiskLevel.R1):
-            result = await self._execute_action(action, cmd.server_id, cmd.params)
-            return result.summary
+        if risk == RiskLevel.R0 or (
+            risk == RiskLevel.R1 and not runtime.config.ops_r1_requires_approval
+        ):
+            return await self._execute_direct_action(
+                action,
+                cmd.server_id,
+                cmd.params,
+                sender_id,
+                scope_type,
+                scope_id,
+                risk,
+            )
 
         # R2 创建审批
         return await self._create_approval(
@@ -180,7 +200,8 @@ class CommandHandler:
 
         elif action == ActionType.LOGS:
             limit = int(params.get("limit", "20"))
-            limit = max(1, min(100, limit))
+            max_log_lines = getattr(get_runtime().config, "ops_max_log_lines", 100)
+            limit = max(1, min(max_log_lines, limit))
             result = await self._ops.get_logs(server_id, limit)
             return type("Result", (), {"summary": "\n".join(result.lines)})()
         else:
@@ -192,6 +213,55 @@ class CommandHandler:
             }[action])
             result = await method(server_id)
             return result
+
+    async def _execute_direct_action(
+        self,
+        action: ActionType,
+        server_id: str,
+        params: dict[str, str],
+        sender_id: str,
+        scope_type: ScopeType,
+        scope_id: str,
+        risk_level: RiskLevel,
+    ) -> str:
+        """执行低风险操作，并记录不依赖任务表的审计闭环。"""
+        runtime = get_runtime()
+        correlation_id = runtime.job_service.new_operation_id()
+        audit_args = {
+            "correlation_id": correlation_id,
+            "operation_id": correlation_id,
+            "action": action.value,
+            "target": server_id,
+            "risk_level": risk_level.value,
+        }
+        await runtime.audit_service.record(
+            "operation",
+            sender_id,
+            f"{scope_type.value}:{scope_id}",
+            "started",
+            **audit_args,
+        )
+        try:
+            result = await self._execute_action(action, server_id, params)
+        except Exception as error:
+            await runtime.audit_service.record(
+                "operation",
+                sender_id,
+                f"{scope_type.value}:{scope_id}",
+                "failed",
+                reason=type(error).__name__,
+                **audit_args,
+            )
+            return f"操作失败，诊断 ID: {correlation_id}。"
+
+        await runtime.audit_service.record(
+            "operation",
+            sender_id,
+            f"{scope_type.value}:{scope_id}",
+            "succeeded",
+            **audit_args,
+        )
+        return result.summary
 
     async def _create_approval(
         self,
@@ -223,6 +293,7 @@ class CommandHandler:
             return f"服务器 {server_id} 已有任务 {e.existing_job_id} 在进行中，请等待完成后再操作。"
 
         code = await runtime.approval_service.create_approval(job)
+        await self._audit_operation(job, "approval_requested")
 
         return (
             f"⚠️ 高风险操作确认\n"
@@ -240,14 +311,17 @@ class CommandHandler:
         self,
         cmd: ParsedCommand,
         sender_id: str,
+        scope_type: ScopeType,
         scope_id: str,
     ) -> str:
         runtime = get_runtime()
 
         try:
             job = await runtime.approval_service.validate(
+                scope_type,
                 scope_id,
                 cmd.raw_code,
+                expected_scope_type=scope_type,
                 expected_scope_id=scope_id,
                 expected_actor=sender_id,
             )
@@ -261,6 +335,7 @@ class CommandHandler:
         # 执行
         await runtime.job_service.transition(job, OperationState.QUEUED)
         await runtime.job_service.transition(job, OperationState.RUNNING)
+        await self._audit_operation(job, "approval_confirmed")
 
         try:
             timeout_seconds = getattr(runtime.config, "ops_command_timeout_seconds", 30)
@@ -275,6 +350,7 @@ class CommandHandler:
             await runtime.job_service.transition(
                 job, OperationState.SUCCEEDED, result_summary=result.summary
             )
+            await self._audit_operation(job, "succeeded")
             return f"✅ {result.summary}"
         except TimeoutError:
             await runtime.job_service.transition(
@@ -286,23 +362,26 @@ class CommandHandler:
                 await self._ops.check_operation(job.operation_id)
             except Exception:
                 pass
+            await self._audit_operation(job, "unknown", reason="operation_timeout")
             return f"❓ 操作超时，任务 {job.operation_id} 已标记为未知状态，请稍后查询。"
         except Exception as e:
             await runtime.job_service.transition(
                 job, OperationState.FAILED, result_summary=str(e)
             )
-            return f"❌ 操作失败: {e}"
+            await self._audit_operation(job, "failed", reason=type(e).__name__)
+            return f"❌ 操作失败，任务 {job.operation_id} 已记录。"
 
     async def _handle_cancel(
         self,
         cmd: ParsedCommand,
         sender_id: str,
+        scope_type: ScopeType,
         scope_id: str,
     ) -> str:
         runtime = get_runtime()
 
         code_hash = runtime.approval_service.hash_code(cmd.raw_code)
-        job = await self._store.find_pending_approval(scope_id, code_hash)
+        job = await self._store.find_pending_approval(scope_type, scope_id, code_hash)
 
         if job is None:
             return "未找到对应的待审批操作。"
@@ -310,7 +389,30 @@ class CommandHandler:
             return "只有创建该操作的本人才能取消。"
 
         await runtime.approval_service.cancel(job)
+        await self._audit_operation(job, "cancelled")
         return "已取消该操作。"
+
+    async def _audit_operation(
+        self,
+        job: "OperationJob",
+        decision: str,
+        *,
+        reason: str | None = None,
+    ) -> None:
+        """记录不包含命令原文的高风险操作审计事件。"""
+        runtime = get_runtime()
+        await runtime.audit_service.record(
+            "operation",
+            job.request.actor_qq_id,
+            f"{job.request.scope_type.value}:{job.request.scope_id}",
+            decision,
+            reason=reason,
+            correlation_id=job.operation_id,
+            operation_id=job.operation_id,
+            action=job.request.action.value,
+            target=job.request.server_id,
+            risk_level=job.request.risk_level.value,
+        )
 
     # ----------------------------------------------------------
     # 任务查询

@@ -13,14 +13,14 @@ import secrets
 from datetime import UTC, datetime, timedelta
 from typing import Protocol
 
-from bot.src.core.models import OperationJob, OperationState
+from bot.src.core.models import OperationJob, OperationState, ScopeType
 
 
 class ApprovalCodeStore(Protocol):
     """确认码存储接口——用于查询和更新待审批任务。"""
 
     async def find_pending_approval(
-        self, scope_id: str, code_hash: str
+        self, scope_type: ScopeType, scope_id: str, code_hash: str
     ) -> OperationJob | None: ...
 
     async def save_job(self, job: OperationJob) -> None: ...
@@ -64,9 +64,11 @@ class ApprovalService:
 
     async def validate(
         self,
+        scope_type: ScopeType,
         scope_id: str,
         code: str,
         *,
+        expected_scope_type: ScopeType,
         expected_scope_id: str,
         expected_actor: str,
     ) -> OperationJob:
@@ -82,14 +84,14 @@ class ApprovalService:
         )
 
         code_hash = self.hash_code(code)
-        job = await self._store.find_pending_approval(scope_id, code_hash)
+        job = await self._store.find_pending_approval(scope_type, scope_id, code_hash)
 
         if job is None:
             raise ApprovalMismatchError(
                 f"确认码无效或不属于当前会话"
             )
 
-        if scope_id != expected_scope_id:
+        if scope_type != expected_scope_type or scope_id != expected_scope_id:
             raise ApprovalMismatchError(
                 "确认必须来自创建操作的同一会话"
             )

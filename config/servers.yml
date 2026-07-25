@@ -11,11 +11,15 @@
 
 servers:
   survival:
+    # false 时该服务器不会注册到 Gateway，也无法被命令操作。
+    enabled: true
     display_name: 生存服
     driver: mock
     capabilities: [status, players, logs, start, stop, restart, backup]
 
   creative:
+    # 可保留登记信息但临时关闭某台服务器。
+    enabled: true
     display_name: 创造服
     driver: mock
     capabilities: [status, players, logs, start, stop, restart, backup]

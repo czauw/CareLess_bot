@@ -97,6 +97,7 @@ class ServerTarget:
     display_name: str
     driver: str  # "mock" | "real"
     capabilities: frozenset[str]
+    enabled: bool = True
 
     @classmethod
     def from_config(cls, server_id: str, data: dict) -> "ServerTarget":
@@ -105,6 +106,7 @@ class ServerTarget:
             display_name=data.get("display_name", server_id),
             driver=data.get("driver", "mock"),
             capabilities=frozenset(data.get("capabilities", [])),
+            enabled=bool(data.get("enabled", True)),
         )
 
 
@@ -150,6 +152,10 @@ class AuditEvent:
     decision: str
     reason: str | None
     correlation_id: str
+    operation_id: str | None = None
+    action: str | None = None
+    target: str | None = None
+    risk_level: str | None = None
     created_at: datetime = field(default_factory=lambda: datetime.now(UTC))
 
 
