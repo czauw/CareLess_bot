@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from typing import Literal
 
-from pydantic import Field, model_validator
+from pydantic import Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -20,6 +20,7 @@ class Settings(BaseSettings):
         env_file_encoding="utf-8",
         case_sensitive=False,
         extra="ignore",
+        enable_decoding=False,
     )
 
     # --- QQ / OneBot 连接 ---
@@ -68,6 +69,14 @@ class Settings(BaseSettings):
 
     # --- 时区 ---
     timezone: str = Field(default="Asia/Shanghai")
+
+    @field_validator("whitelist_qq_ids", "allowed_group_ids", mode="before")
+    @classmethod
+    def _split_id_sets(cls, value: object) -> object:
+        """支持 .env 中常用的逗号分隔 QQ 号配置。"""
+        if isinstance(value, str):
+            return {item.strip() for item in value.split(",") if item.strip()}
+        return value
 
     @model_validator(mode="after")
     def _validate_critical(self) -> "Settings":

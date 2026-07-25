@@ -10,10 +10,12 @@
 
 from __future__ import annotations
 
+import asyncio
 import uuid
 from datetime import datetime
 
 from bot.src.core.errors import (
+    ApprovalAlreadyUsedError,
     ApprovalExpiredError,
     ApprovalMismatchError,
     CommandParseError,
@@ -79,6 +81,13 @@ class CommandHandler:
 
         # 2. 解析命令
         cmd = self._parser.parse(text)
+        await runtime.audit_service.record(
+            "admin_command",
+            sender_id,
+            f"{scope_type.value}:{scope_id}",
+            "accepted",
+            reason=cmd.kind,
+        )
 
         # 3. 分发
         if cmd.kind == "help":
@@ -116,6 +125,11 @@ class CommandHandler:
 
         action = cmd.action
         risk = ACTION_RISK[action]
+
+        runtime = get_runtime()
+        target = runtime.server_targets.get(cmd.server_id)
+        if target is None or action.value not in target.capabilities:
+            return f"服务器 {cmd.server_id} 不支持操作 {action.value}。"
 
         # R3 拒绝
         if risk == RiskLevel.R3:
@@ -249,15 +263,30 @@ class CommandHandler:
         await runtime.job_service.transition(job, OperationState.RUNNING)
 
         try:
-            result = await self._execute_action(
-                job.request.action,
-                job.request.server_id,
-                job.request.normalized_params,
+            timeout_seconds = getattr(runtime.config, "ops_command_timeout_seconds", 30)
+            result = await asyncio.wait_for(
+                self._execute_action(
+                    job.request.action,
+                    job.request.server_id,
+                    job.request.normalized_params,
+                ),
+                timeout=timeout_seconds,
             )
             await runtime.job_service.transition(
                 job, OperationState.SUCCEEDED, result_summary=result.summary
             )
             return f"✅ {result.summary}"
+        except TimeoutError:
+            await runtime.job_service.transition(
+                job,
+                OperationState.UNKNOWN,
+                result_summary="操作超时，等待状态核验",
+            )
+            try:
+                await self._ops.check_operation(job.operation_id)
+            except Exception:
+                pass
+            return f"❓ 操作超时，任务 {job.operation_id} 已标记为未知状态，请稍后查询。"
         except Exception as e:
             await runtime.job_service.transition(
                 job, OperationState.FAILED, result_summary=str(e)

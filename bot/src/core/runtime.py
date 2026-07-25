@@ -34,6 +34,11 @@ class Runtime:
     job_service: JobService | None = None
     audit_service: AuditService | None = None
     rate_limit_service: RateLimitService | None = None
+    context_service: Any = None
+    persona_gate: Any = None
+    responder: Any = None
+    command_handler: Any = None
+    server_targets: dict[str, Any] = field(default_factory=dict)
 
     _initialized: bool = False
 

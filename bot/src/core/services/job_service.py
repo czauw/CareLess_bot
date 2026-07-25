@@ -9,7 +9,7 @@
 from __future__ import annotations
 
 import uuid
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Protocol
 
 from bot.src.core.models import (
@@ -74,7 +74,7 @@ class JobService:
                 f"不允许的状态迁移: {job.state.value} -> {to_state.value}"
             )
         job.state = to_state
-        job.updated_at = datetime.utcnow()
+        job.updated_at = datetime.now(UTC)
         if result_summary is not None:
             job.result_summary = result_summary
         await self._store.save_job(job)

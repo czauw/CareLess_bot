@@ -7,7 +7,7 @@
 from __future__ import annotations
 
 import collections
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 
 from bot.src.core.models import (
     AuditEvent,
@@ -55,14 +55,14 @@ class MemoryStore:
 
     async def append_context(self, message: NormalizedMessage) -> None:
         """追加消息到短期上下文窗口。"""
-        scope_id = message.scope_id
-        ctx = self._contexts[scope_id]
+        scope_key = f"{message.scope_type.value}:{message.scope_id}"
+        ctx = self._contexts[scope_key]
         ctx.append(message)
         # 按数量裁剪
         while len(ctx) > self._context_max:
             ctx.popleft()
         # 按时间裁剪
-        self._evict_expired(scope_id)
+        self._evict_expired(scope_key)
 
     async def get_context(
         self, scope_id: str, limit: int
@@ -78,7 +78,7 @@ class MemoryStore:
         ctx = self._contexts.get(scope_id)
         if not ctx:
             return
-        cutoff = datetime.utcnow() - timedelta(seconds=self._context_ttl)
+        cutoff = datetime.now(UTC) - timedelta(seconds=self._context_ttl)
         while ctx and ctx[0].created_at < cutoff:
             ctx.popleft()
 
@@ -86,7 +86,7 @@ class MemoryStore:
 
     async def save_job(self, job: OperationJob) -> None:
         """保存或更新任务。"""
-        job.updated_at = datetime.utcnow()
+        job.updated_at = datetime.now(UTC)
         self._jobs[job.operation_id] = job
 
     async def get_job(self, operation_id: str) -> OperationJob | None:

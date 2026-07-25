@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Any
 
 from bot.src.core.models import NormalizedMessage, ScopeType
@@ -29,7 +29,7 @@ def normalize_group_message(event: dict[str, Any], bot_qq_id: str = "") -> Norma
         message_type=str(event.get("message_type", "text")),
         reply_to=None,  # 从事件中提取 reply 关系（按需）
         is_at_bot=is_at_bot,
-        created_at=datetime.utcnow(),
+        created_at=datetime.now(UTC),
     )
 
 
@@ -51,5 +51,5 @@ def normalize_private_message(
         message_type=str(event.get("message_type", "text")),
         reply_to=None,
         is_at_bot=True,  # 私聊中每条消息都视为"对话"
-        created_at=datetime.utcnow(),
+        created_at=datetime.now(UTC),
     )

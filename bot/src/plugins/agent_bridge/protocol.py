@@ -7,7 +7,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import UTC, datetime
 from enum import Enum
 from typing import Any
 
@@ -28,7 +28,7 @@ class AgentMessage:
 
     role: str  # "user" | "agent" | "system" | "tool"
     content: str
-    timestamp: datetime = field(default_factory=datetime.utcnow)
+    timestamp: datetime = field(default_factory=lambda: datetime.now(UTC))
 
 
 @dataclass
@@ -55,4 +55,4 @@ class HermesSession:
     state: AgentSessionState = AgentSessionState.IDLE
     messages: list[AgentMessage] = field(default_factory=list)
     pending_approvals: list[ApprovalRequest] = field(default_factory=list)
-    created_at: datetime = field(default_factory=datetime.utcnow)
+    created_at: datetime = field(default_factory=lambda: datetime.now(UTC))

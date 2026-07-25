@@ -17,6 +17,7 @@ import random
 import time
 from dataclasses import dataclass
 from datetime import datetime
+from zoneinfo import ZoneInfo
 
 from bot.src.core.models import NormalizedMessage, TriggerType
 
@@ -43,6 +44,7 @@ class PersonaGate:
         quiet_start: str = "00:30",
         quiet_end: str = "07:30",
         bot_qq_id: str = "",
+        timezone: str = "Asia/Shanghai",
     ) -> None:
         self._active_prob = active_probability
         self._group_cooldown = group_cooldown_seconds
@@ -51,6 +53,7 @@ class PersonaGate:
         self._quiet_start = quiet_start
         self._quiet_end = quiet_end
         self._bot_qq_id = bot_qq_id
+        self._timezone = ZoneInfo(timezone)
 
         # 冷却追踪
         self._group_last_reply: dict[str, float] = {}
@@ -69,7 +72,7 @@ class PersonaGate:
 
     def is_quiet_hours(self) -> bool:
         """当前是否在夜间静默时段。"""
-        now = datetime.utcnow()
+        now = datetime.now(self._timezone)
         hour = now.hour  # UTC; 实际使用时需根据时区转换（MVP 先简化）
         start_h, _ = map(int, self._quiet_start.split(":"))
         end_h, _ = map(int, self._quiet_end.split(":"))
@@ -81,8 +84,10 @@ class PersonaGate:
         """评估消息是否应触发回复。"""
         now = time.monotonic()
 
-        # 硬触发
+        # 硬触发也必须受群和用户冷却限制。
         if self.is_hard_trigger(msg):
+            if not self._within_cooldown(msg, now):
+                return GateResult(TriggerType.NONE, should_reply=False, reason="回复冷却中")
             return GateResult(TriggerType.HARD, should_reply=True, reason="硬触发")
 
         # 夜间只响应硬触发
@@ -90,14 +95,8 @@ class PersonaGate:
             return GateResult(TriggerType.NONE, should_reply=False, reason="夜间静默")
 
         # 群级冷却
-        group_last = self._group_last_reply.get(msg.scope_id, 0)
-        if now - group_last < self._group_cooldown:
-            return GateResult(TriggerType.NONE, should_reply=False, reason="群冷却中")
-
-        # 用户级冷却
-        user_last = self._user_last_reply.get(msg.sender_id, 0)
-        if now - user_last < self._user_cooldown:
-            return GateResult(TriggerType.NONE, should_reply=False, reason="用户冷却中")
+        if not self._within_cooldown(msg, now):
+            return GateResult(TriggerType.NONE, should_reply=False, reason="回复冷却中")
 
         # 每小时额度
         if not self._check_hourly_quota(msg.scope_id):
@@ -105,13 +104,24 @@ class PersonaGate:
 
         # 概率抽样
         if random.random() < self._active_prob:
-            self._record_reply(msg.scope_id, msg.sender_id)
             return GateResult(TriggerType.SOFT, should_reply=True, reason="软触发抽中")
         return GateResult(TriggerType.NONE, should_reply=False, reason="未抽中")
 
     # ----------------------------------------------------------
     # 内部
     # ----------------------------------------------------------
+
+    def record_reply(self, msg: NormalizedMessage) -> None:
+        """仅在成功发送后记录回复，避免 LLM 失败占用冷却。"""
+        self._record_reply(msg.scope_id, msg.sender_id)
+
+    def _within_cooldown(self, msg: NormalizedMessage, now: float) -> bool:
+        group_last = self._group_last_reply.get(msg.scope_id, float("-inf"))
+        user_last = self._user_last_reply.get(msg.sender_id, float("-inf"))
+        return (
+            now - group_last >= self._group_cooldown
+            and now - user_last >= self._user_cooldown
+        )
 
     def _record_reply(self, scope_id: str, sender_id: str) -> None:
         """记录回复事件（冷却、计数）。"""

@@ -7,7 +7,7 @@
 
 from __future__ import annotations
 
-from bot.src.core.models import NormalizedMessage
+from bot.src.core.models import NormalizedMessage, ScopeType
 from bot.src.core.ports import Store
 
 
@@ -30,9 +30,18 @@ class ContextService:
         await self._store.append_context(message)
 
     async def get_recent(
-        self, scope_id: str, *, limit: int | None = None
+        self,
+        scope_id: str,
+        *,
+        scope_type: ScopeType,
+        limit: int | None = None,
     ) -> list[NormalizedMessage]:
         """获取最近 N 条上下文（用于构造 LLM 提示）。"""
         return await self._store.get_context(
-            scope_id, limit=limit or self._max_messages
+            self.scope_key(scope_type, scope_id), limit=limit or self._max_messages
         )
+
+    @staticmethod
+    def scope_key(scope_type: ScopeType, scope_id: str) -> str:
+        """为短期上下文生成不可冲突的群聊/私聊作用域键。"""
+        return f"{scope_type.value}:{scope_id}"

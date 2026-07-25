@@ -120,13 +120,19 @@ class CommandParser:
             if action == ActionType.LOGS:
                 # /服 日志 [服名] [行数]
                 if arg1 and arg1.isdigit():
+                    if arg2:
+                        raise CommandParseError("日志行数后不能再提供额外参数")
                     params["limit"] = arg1
                 elif arg1:
                     server_id = self._resolve_server(arg1)
-                    if arg2 and arg2.isdigit():
+                    if arg2:
+                        if not arg2.isdigit():
+                            raise CommandParseError("日志行数必须是数字")
                         params["limit"] = arg2
                 params.setdefault("limit", "20")
             else:
+                if arg2:
+                    raise CommandParseError("该命令只接受一个服务器名称参数")
                 if arg1:
                     server_id = self._resolve_server(arg1)
 

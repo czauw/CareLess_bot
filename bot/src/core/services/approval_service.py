@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import hashlib
 import secrets
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from typing import Protocol
 
 from bot.src.core.models import OperationJob, OperationState
@@ -51,7 +51,7 @@ class ApprovalService:
 
     def expires_at(self) -> datetime:
         """计算新确认码的过期时间。"""
-        return datetime.utcnow() + timedelta(seconds=self._ttl)
+        return datetime.now(UTC) + timedelta(seconds=self._ttl)
 
     async def create_approval(self, job: OperationJob) -> str:
         """为待审批任务创建确认码，返回明文码。"""
@@ -107,7 +107,7 @@ class ApprovalService:
 
         if (
             job.approval_expires_at is not None
-            and datetime.utcnow() > job.approval_expires_at
+            and datetime.now(UTC) > job.approval_expires_at
         ):
             job.state = OperationState.EXPIRED
             await self._store.save_job(job)
