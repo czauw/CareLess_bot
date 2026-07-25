@@ -1,0 +1,21 @@
+# ============================================================
+# 服务器登记配置（MVP 使用 mock driver）
+# ============================================================
+# 每个服务器需指定：
+#   display_name: 在 QQ 消息中显示的别名
+#   driver:       mock（MVP）或 real（未来）
+#   capabilities: 该服务器支持的操作列表
+#
+# 未来替换真实 Gateway 时，driver 只决定服务端适配器，
+# 不改变 QQ 命令和领域模型。
+
+servers:
+  survival:
+    display_name: 生存服
+    driver: mock
+    capabilities: [status, players, logs, start, stop, restart, backup]
+
+  creative:
+    display_name: 创造服
+    driver: mock
+    capabilities: [status, players, logs, start, stop, restart, backup]
