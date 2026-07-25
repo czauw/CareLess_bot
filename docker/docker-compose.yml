@@ -1,0 +1,76 @@
+# CareLess Bot — Docker Compose
+#
+# MVP 部署：NapCat + NoneBot2 + MySQL
+# Hermes 在 P2 阶段加入
+#
+# 使用方式：
+#   1. 复制 bot/.env.example 为 bot/.env 并填入实际值
+#   2. docker compose up -d
+
+services:
+  # ============================================================
+  # NapCat — QQ 接入端
+  # ============================================================
+  napcat:
+    image: napcat/napcat:latest
+    container_name: napcat
+    restart: unless-stopped
+    volumes:
+      - ./napcat/config.json:/app/config.json:ro
+      - napcat_data:/app/data
+    network_mode: bridge
+    ports:
+      - "127.0.0.1:8080:8080"  # OneBot 反向 WS（仅本地）
+    environment:
+      - TZ=Asia/Shanghai
+
+  # ============================================================
+  # CareLess Bot — NoneBot2 业务进程
+  # ============================================================
+  bot:
+    build:
+      context: ../bot
+      dockerfile: ../docker/bot/Dockerfile
+    container_name: careless-bot
+    restart: unless-stopped
+    volumes:
+      - ../bot/src:/app/src:ro
+      - ../config:/app/config:ro
+    env_file:
+      - ../bot/.env
+    depends_on:
+      mysql:
+        condition: service_healthy
+    network_mode: bridge
+    environment:
+      - TZ=Asia/Shanghai
+
+  # ============================================================
+  # MySQL 8 — 持久化
+  # ============================================================
+  mysql:
+    image: mysql:8.0
+    container_name: careless-mysql
+    restart: unless-stopped
+    volumes:
+      - mysql_data:/var/lib/mysql
+      - mysql_backup:/backup
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-changeme}
+      MYSQL_DATABASE: bot
+      MYSQL_USER: bot
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:-changeme}
+      TZ: Asia/Shanghai
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    network_mode: bridge
+    ports:
+      - "127.0.0.1:3306:3306"
+
+volumes:
+  napcat_data:
+  mysql_data:
+  mysql_backup:

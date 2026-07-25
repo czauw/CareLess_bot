@@ -1,0 +1,16 @@
+{
+  "ws_reverse": [
+    {
+      "enable": true,
+      "url": "ws://bot:8080/onebot/v11/ws",
+      "access_token": "${ONEBOT_ACCESS_TOKEN}"
+    }
+  ],
+  "http": {
+    "enable": false
+  },
+  "heartbeat": {
+    "enable": true,
+    "interval": 30000
+  }
+}
