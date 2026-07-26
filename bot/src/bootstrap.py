@@ -164,6 +164,7 @@ def build_runtime(
     runtime.responder = Responder(
         runtime.llm_provider,
         max_reply_length=persona_value(settings, persona_options, "max_reply_length"),
+        profile=persona_options.get("profile"),
         cache_enabled=settings.response_cache_enabled,
         cache_ttl_seconds=settings.response_cache_ttl_seconds,
         cache_store=store if settings.storage_backend == "sqlalchemy" else None,

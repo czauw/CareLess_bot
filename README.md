@@ -16,7 +16,7 @@
 
 ## 快速配置
 
-复制 `bot/.env.example` 为本地 `.env`，至少填写以下项目后才可启动：
+首次执行 `python -m bot.src.bot` 时，如果仓库根目录没有 `.env`，程序会自动从 `bot/.env.example` 创建一份并停止启动，同时提示填写必填项。已有 `.env` 绝不会被覆盖。填写以下项目后重新启动：
 
 ```dotenv
 ONEBOT_ACCESS_TOKEN=替换为至少8位的随机令牌
@@ -37,23 +37,28 @@ LLM_MODEL=gpt-4o-mini
 
 ## 配置说明
 
-完整示例和中文注释见 [bot/.env.example](bot/.env.example)。布尔开关均使用 `true` 或 `false`。
+安装运行依赖可使用 `python -m pip install -r requirements.txt`；依赖清单位于 [requirements.txt](requirements.txt)。完整环境变量示例和中文注释见 [bot/.env.example](bot/.env.example)。布尔开关均使用 `true` 或 `false`。
 
-| 分类 | 必要配置 | 说明 |
-| --- | --- | --- |
-| OneBot | `ONEBOT_ACCESS_TOKEN`、`BOT_QQ_ID` | 连接反向 WebSocket 的令牌和机器人 QQ 号。|
-| 权限 | `WHITELIST_QQ_IDS`、`ALLOWED_GROUP_IDS` | 白名单可执行管理命令；群白名单限制普通成员人格入口。|
-| 总开关 | `BOT_ENABLED`、`ADMIN_COMMANDS_ENABLED`、`PERSONA_ENABLED`、`LLM_ENABLED` | 可整体关闭机器人、命令、人格或远程模型调用。|
-| 人格会话 | `GUEST_CONVERSATION_*`、`GUEST_GROUP_*_COOLDOWN_SECONDS` | 配置普通成员会话上限、有效期，以及按群独立的回复和艾特冷却。上限由代码限制为 1 到 2。|
-| 上下文与缓存 | `CONTEXT_*`、`RESPONSE_CACHE_*` | 配置线性记忆预算、保留时间和精确回复缓存 TTL。|
-| 运维 | `OPS_*`、`APPROVAL_TTL_SECONDS` | 独立控制只读、写操作和 R1 操作是否也需要确认。当前仅 `mock` 后端可用。|
-| 持久化 | `STORAGE_BACKEND`、`SQLALCHEMY_DATABASE_URL` | 选择内存或 SQLAlchemy 存储。SQLAlchemy 必须显式设置 DSN。|
+| 分类         | 必要配置                                                                          | 说明                                                                                  |
+| ------------ | --------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------- |
+| OneBot       | `ONEBOT_ACCESS_TOKEN`、`BOT_QQ_ID`                                            | 连接反向 WebSocket 的令牌和机器人 QQ 号。                                             |
+| 权限         | `WHITELIST_QQ_IDS`、`ALLOWED_GROUP_IDS`                                       | 白名单可执行管理命令；群白名单限制普通成员人格入口。                                  |
+| 总开关       | `BOT_ENABLED`、`ADMIN_COMMANDS_ENABLED`、`PERSONA_ENABLED`、`LLM_ENABLED` | 可整体关闭机器人、命令、人格或远程模型调用。                                          |
+| 人格会话     | `GUEST_CONVERSATION_*`、`GUEST_GROUP_*_COOLDOWN_SECONDS`                      | 配置普通成员会话上限、有效期，以及按群独立的回复和艾特冷却。上限由代码限制为 1 到 2。 |
+| 上下文与缓存 | `CONTEXT_*`、`RESPONSE_CACHE_*`                                               | 配置线性记忆预算、保留时间和精确回复缓存 TTL。                                        |
+| 运维         | `OPS_*`、`APPROVAL_TTL_SECONDS`                                               | 独立控制只读、写操作和 R1 操作是否也需要确认。当前仅`mock` 后端可用。               |
+| 持久化       | `STORAGE_BACKEND`、`SQLALCHEMY_DATABASE_URL`                                  | 选择内存或 SQLAlchemy 存储。SQLAlchemy 必须显式设置 DSN。                             |
+| 日志         | `config/logging.yml`、可选 `LOG_LEVEL`                                        | YAML 设置等级、轮转数量和控制台输出；环境变量可临时覆盖等级。                         |
 
 `PERSONA_ACTIVE_PROBABILITY`、`PERSONA_GROUP_COOLDOWN_SECONDS`、`PERSONA_USER_COOLDOWN_SECONDS` 和 `PERSONA_MAX_ACTIVE_REPLIES_PER_HOUR` 用于主动插话的通用门控。普通成员的 `@` 短会话实际使用 `GUEST_GROUP_REPLY_COOLDOWN_SECONDS` 与 `GUEST_GROUP_MENTION_COOLDOWN_SECONDS`。
 
 `config/persona.yml` 仅可覆盖人格门控、主动概率、通用冷却、回复长度和静默时段。环境变量中显式设置的同名 `PERSONA_*` 值优先。会话、数据库、全模块开关等仍在 `.env` 中配置。
 
+机器人可选人设也在 `config/persona.yml` 的 `persona.profile` 中管理，使用 YAML 的字符串与列表字段表达昵称、身份、背景、性格、说话风格和边界。`enabled: false` 为默认值，此时不会把任何自定义人设加入提示词；设为 `true` 后才会生效。连接令牌、API 密钥与数据库 DSN 仍应放在 `.env`，不要写入 YAML 配置。
+
 `config/servers.yml` 的服务器需要 `enabled`、`display_name`、`driver` 和 `capabilities`。支持的能力为 `status`、`players`、`logs`、`start`、`stop`、`restart`、`backup`。`enabled: false` 不会注册该服务器，也不能被命令操作；`real` 驱动仅为预留，目前启用会被拒绝。
+
+`config/logging.yml` 控制日志等级，支持 `DEBUG`、`INFO`、`WARNING`、`ERROR`、`CRITICAL`。日志写入根目录 `log/careless-bot.log`，单文件上限强制为 10MB，默认保留 5 个轮转备份；`log/` 已被 `.gitignore` 忽略。需要部署时临时提高或降低等级，可在 `.env` 设置 `LOG_LEVEL` 覆盖 YAML。
 
 ## 人格触发与记忆
 
@@ -89,7 +94,7 @@ python -m compileall -q bot tests
 python -m bot.src.bot
 ```
 
-最后一条只启动本地机器人进程，需要先创建有效 `.env` 和可用 OneBot 反向 WebSocket；它不等于部署。
+最后一条只启动本地机器人进程。缺少 `.env` 时会创建示例文件并提示填写；已有但无效的 `.env` 会报告具体校验错误。需要可用 OneBot 反向 WebSocket；它不等于部署。
 
 ## 验证状态
 
@@ -103,3 +108,6 @@ python -m bot.src.bot
 - 2026-07-25：完成管理员即时人格回复、普通成员两回合短会话、群级双冷却、20K 线性上下文与精确回复缓存。
 - 2026-07-26：规划 SQLAlchemy 群消息、记忆、缓存、运维和审计表，并接入可选 `SqlAlchemyStore`。
 - 2026-07-26：补充 README 与示例配置，明确本地运行、人格行为、可选持久化及尚未实现的边界。
+- 2026-07-26：新增 `requirements.txt` 与 YAML 可选人设配置；默认不注入自定义人设。
+- 2026-07-26：首次启动缺少 `.env` 时自动从示例创建，并提示填写必填连接与管理员信息。
+- 2026-07-26：新增 YAML 日志配置和根目录日志轮转，单文件最大 10MB，日志目录不纳入 Git。

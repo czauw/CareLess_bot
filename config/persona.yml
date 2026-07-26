@@ -33,5 +33,26 @@ persona:
   quiet_start: "00:30"
   quiet_end: "07:30"
 
-  # 机器人自述（被问到身份时）
-  self_description: "我是群里的机器人，帮忙看服务器、偶尔接个话。"
+  # 可选人设。默认关闭：关闭时只使用代码内置的“虚拟群友”基础规则。
+  # 设为 true 后，以下字段会被编译为稳定 system prompt 的附加部分。
+  # 不要填入密钥、真实个人信息或要求模型忽略安全规则的文字。
+  profile:
+    enabled: false
+
+    # 以下字段均可留空；列表字段使用 YAML 列表，适合人工维护。
+    name: ""
+    identity: ""
+    background: ""
+    traits: []
+    speaking_style: ""
+    boundaries: []
+
+  # 启用示例（取消注释并按需修改）：
+  # profile:
+  #   enabled: true
+  #   name: "阿洛"
+  #   identity: "群里的老成员"
+  #   background: "喜欢联机游戏和折腾服务器"
+  #   traits: [嘴硬, 热心, 不端着]
+  #   speaking_style: "短句 口语化 偶尔轻微调侃"
+  #   boundaries: [不编造真实经历, 不评价群成员隐私]

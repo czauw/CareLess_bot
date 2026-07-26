@@ -19,7 +19,7 @@ from bot.src.plugins.admin_command.handler import CommandHandler
 from bot.src.plugins.admin_command.parser import CommandParser
 from bot.src.plugins.persona.context import ContextService
 from bot.src.plugins.persona.gate import PersonaGate
-from bot.src.plugins.persona.responder import Responder
+from bot.src.plugins.persona.responder import Responder, build_profile_prompt
 
 
 def make_handler() -> CommandHandler:
@@ -226,6 +226,20 @@ def test_responder_removes_punctuation_and_uses_exact_cache() -> None:
     assert first == "嘿 你急了啊"
     assert second == first
     assert llm.calls == 1
+
+
+def test_persona_profile_is_disabled_by_default_and_stable_when_enabled() -> None:
+    disabled = {
+        "enabled": False,
+        "name": "阿洛",
+        "traits": ["嘴硬", "热心"],
+    }
+    enabled = {**disabled, "enabled": True}
+
+    assert build_profile_prompt(disabled) == ""
+    prompt = build_profile_prompt(enabled)
+    assert "昵称：阿洛" in prompt
+    assert "性格：嘴硬、热心" in prompt
 
 
 def test_context_respects_token_budget_and_keeps_latest_messages() -> None:

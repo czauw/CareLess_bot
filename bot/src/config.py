@@ -6,17 +6,42 @@
 
 from __future__ import annotations
 
+import shutil
+from pathlib import Path
 from typing import Literal
 
 from pydantic import Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
+DEFAULT_ENV_FILE = PROJECT_ROOT / ".env"
+DEFAULT_ENV_EXAMPLE_FILE = PROJECT_ROOT / "bot" / ".env.example"
+
+
+def ensure_env_file(
+    env_file: Path = DEFAULT_ENV_FILE,
+    example_file: Path = DEFAULT_ENV_EXAMPLE_FILE,
+) -> bool:
+    """缺少 .env 时从示例创建，并返回是否刚刚创建。
+
+    不覆盖已有文件，避免启动时意外替换用户的令牌和数据库配置。
+    """
+    if env_file.exists():
+        if not env_file.is_file():
+            raise RuntimeError(f"配置路径不是文件: {env_file}")
+        return False
+    if not example_file.is_file():
+        raise RuntimeError(f"找不到环境变量示例文件: {example_file}")
+    shutil.copyfile(example_file, env_file)
+    return True
+
+
 class Settings(BaseSettings):
     """机器人全局配置。"""
 
     model_config = SettingsConfigDict(
-        env_file=".env",
+        env_file=DEFAULT_ENV_FILE,
         env_file_encoding="utf-8",
         case_sensitive=False,
         extra="ignore",
@@ -106,7 +131,7 @@ class Settings(BaseSettings):
     hermes_api_key: str | None = Field(default=None)
 
     # --- 日志 ---
-    log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR"] = Field(default="INFO")
+    log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"] = Field(default="INFO")
 
     # --- 时区 ---
     timezone: str = Field(default="Asia/Shanghai")
