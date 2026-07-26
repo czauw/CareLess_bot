@@ -263,6 +263,29 @@ def test_responder_limits_json_messages_to_three() -> None:
     assert response == ["one", "two", "three"]
 
 
+def test_responder_appends_current_time_at_the_end_of_user_prompt() -> None:
+    class CapturingLlm:
+        def __init__(self) -> None:
+            self.messages: list[dict[str, str]] = []
+
+        async def chat(self, **kwargs: object) -> str:
+            self.messages = kwargs["messages"]  # type: ignore[assignment,index]
+            return '{"messages":["ok"]}'
+
+    llm = CapturingLlm()
+    responder = Responder(
+        llm,
+        timezone="Asia/Shanghai",
+        now_provider=lambda: datetime(2026, 7, 26, 14, 5, tzinfo=UTC),
+    )
+    trigger = _message(ScopeType.PRIVATE, "10001", "test")
+
+    assert asyncio.run(responder.generate(trigger, [trigger])) == ["ok"]
+    assert llm.messages[1]["content"].endswith(
+        "信息补充，现在是2026-07-26-22-05，你可能会需要它。"
+    )
+
+
 def test_reply_scheduler_replaces_a_waiting_scope_task() -> None:
     async def run() -> None:
         scheduler = PersonaReplyScheduler(

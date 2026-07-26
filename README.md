@@ -52,7 +52,7 @@ LLM_MODEL=gpt-4o-mini
 | 上下文与缓存 | `CONTEXT_*`、`RESPONSE_CACHE_*`                                               | 配置线性记忆预算、保留时间和精确回复缓存 TTL。                                        |
 | 运维         | `OPS_*`、`APPROVAL_TTL_SECONDS`                                               | 独立控制只读、写操作和 R1 操作是否也需要确认。当前仅`mock` 后端可用。               |
 | 持久化       | `STORAGE_BACKEND`、`SQLALCHEMY_DATABASE_URL`、`DATABASE_SCHEMA_MODE`          | SQLAlchemy 启动时检测连接并校验 revision；可显式自动迁移。                            |
-| 日志         | `config/logging.yml`、可选 `LOG_LEVEL`                                        | YAML 设置等级、轮转数量和控制台输出；环境变量可临时覆盖等级。                         |
+| 日志         | `config/logging.yml`、可选 `LOG_LEVEL`                                        | YAML 设置等级、单文件上限和控制台输出；环境变量可临时覆盖等级。                       |
 
 `PERSONA_ACTIVE_PROBABILITY`、`PERSONA_GROUP_COOLDOWN_SECONDS`、`PERSONA_USER_COOLDOWN_SECONDS` 和 `PERSONA_MAX_ACTIVE_REPLIES_PER_HOUR` 用于主动插话的通用门控。普通成员的 `@` 短会话实际使用 `GUEST_GROUP_REPLY_COOLDOWN_SECONDS` 与 `GUEST_GROUP_MENTION_COOLDOWN_SECONDS`。
 
@@ -62,7 +62,7 @@ LLM_MODEL=gpt-4o-mini
 
 `config/servers.yml` 的服务器需要 `enabled`、`display_name`、`driver` 和 `capabilities`。支持的能力为 `status`、`players`、`logs`、`start`、`stop`、`restart`、`backup`。`enabled: false` 不会注册该服务器，也不能被命令操作；`real` 驱动仅为预留，目前启用会被拒绝。
 
-`config/logging.yml` 控制日志等级，支持 `DEBUG`、`INFO`、`WARNING`、`ERROR`、`CRITICAL`。日志写入根目录 `log/careless-bot.log`，单文件上限强制为 10MB，默认保留 5 个轮转备份；`log/` 已被 `.gitignore` 忽略。需要部署时临时提高或降低等级，可在 `.env` 设置 `LOG_LEVEL` 覆盖 YAML。
+`config/logging.yml` 控制日志等级，支持 `DEBUG`、`INFO`、`WARNING`、`ERROR`、`CRITICAL`。每条日志采用“时间 | 等级 | 模块名 | 正文”格式。日志文件写入根目录 `log/`，按启动时间命名为 `月-日-时-分-count.log`，例如 `07-26-21-05-1.log`；单文件上限强制为 10MB，超过后保持同一开始时间并将 count 加一。`log/` 已被 `.gitignore` 忽略。需要部署时临时提高或降低等级，可在 `.env` 设置 `LOG_LEVEL` 覆盖 YAML。
 
 ## 人格触发与记忆
 
@@ -71,7 +71,7 @@ LLM_MODEL=gpt-4o-mini
 - 输出：LLM 只返回 `{"messages":[...]}`；每项是一条自然 QQ 消息，默认允许标点。延迟期内同一作用域的新消息会取消并替换尚未发送的旧任务，延迟结束后再从数据库读取最新上下文。
 - 随机插话：由 `PERSONA_SOFT_TRIGGER_ENABLED` 控制，默认关闭。开启后，未处于普通成员短会话的群消息会在静默、冷却和每小时额度检查后按 `PERSONA_ACTIVE_PROBABILITY` 抽样；未配置可用 LLM 时也不会主动插话。
 - 上下文：每个群和每个私聊对象独立，按时间线追加，超出条数、token 预算或 TTL 时淘汰最早内容。SQLAlchemy 模式从持久化聊天记录读取，并将 MySQL 无时区 `DATETIME` 按 UTC 还原，避免 TTL 错误淘汰刚收到的消息；内存模式下重启会丢失。
-- 缓存：精确缓存键包含群、线性上下文和人格配置，避免跨群复用。稳定的前缀内容放在前面，便于上游 OpenAI 兼容服务的前缀缓存命中。
+- 缓存：精确缓存键包含群、线性上下文和人格配置，避免跨群复用。稳定的前缀内容放在前面，便于上游 OpenAI 兼容服务的前缀缓存命中；当前时间会按 `TIMEZONE` 作为最后一条“信息补充”追加到 user prompt，避免动态时间破坏此前的稳定前缀。
 
 ## 数据库状态
 
@@ -125,3 +125,5 @@ python -m bot.src.bot
 - 2026-07-26：聊天消息表升级为作用域记录，私聊和群聊均持久化，SQLAlchemy 上下文直接从数据库读取。
 - 2026-07-26：修复 MySQL `DATETIME` 读取缺失时区导致 TTL 错误淘汰私聊上下文的问题。
 - 2026-07-26：人格回复改为 JSON 消息列表，支持一轮最多三条 QQ 消息与按作用域 15–30 秒异步拟人延迟。
+- 2026-07-26：日志文件改为按启动时间与序号命名，超过 10MB 时递增序号轮转，并统一记录时间、等级和模块名。
+- 2026-07-26：人格提示词在聊天上下文末尾追加按 `TIMEZONE` 格式化的当前时间信息，保留稳定提示词和线性上下文前缀的缓存命中条件。

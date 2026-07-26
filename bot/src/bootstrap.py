@@ -178,6 +178,7 @@ def build_runtime(
         cache_enabled=settings.response_cache_enabled,
         cache_ttl_seconds=settings.response_cache_ttl_seconds,
         cache_store=store if settings.storage_backend == "sqlalchemy" else None,
+        timezone=settings.timezone,
     )
     runtime.persona_reply_scheduler = PersonaReplyScheduler(
         enabled=settings.persona_reply_delay_enabled,

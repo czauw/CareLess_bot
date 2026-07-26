@@ -13,7 +13,8 @@ import json
 import logging
 import time
 from datetime import UTC, datetime, timedelta
-from typing import Protocol
+from typing import Callable, Protocol
+from zoneinfo import ZoneInfo
 
 from bot.src.core.models import NormalizedMessage
 from bot.src.core.ports import LlmProvider
@@ -85,6 +86,8 @@ class Responder:
         cache_enabled: bool = True,
         cache_ttl_seconds: int = 60,
         cache_store: ResponseCacheStore | None = None,
+        timezone: str = "Asia/Shanghai",
+        now_provider: Callable[[], datetime] | None = None,
     ) -> None:
         self._llm = llm
         self._llm_max_tokens = llm_max_tokens
@@ -97,6 +100,8 @@ class Responder:
         self._cache_ttl = cache_ttl_seconds
         self._cache_store = cache_store
         self._cache: dict[str, tuple[float, list[str]]] = {}
+        self._timezone = ZoneInfo(timezone)
+        self._now_provider = now_provider or (lambda: datetime.now(self._timezone))
 
     async def generate(
         self,
@@ -111,7 +116,7 @@ class Responder:
         context_str = "\n".join(
             f"{m.sender_id}: {self._clean_context_text(m.text)}" for m in context
         )
-        prompt = f"<conversation>\n{context_str}\n</conversation>\n根据记录自然接话"
+        prompt = self._build_prompt(context_str)
         cache_key = self._cache_key(trigger_msg, prompt)
         if cached := self._get_cached(cache_key):
             return cached
@@ -147,6 +152,18 @@ class Responder:
                 datetime.now(UTC) + timedelta(seconds=self._cache_ttl),
             )
         return messages
+
+    def _build_prompt(self, context_str: str) -> str:
+        """构造追加式用户提示词，将动态时间固定放在最后以保留前缀缓存。"""
+        now = self._now_provider()
+        if now.tzinfo is None:
+            now = now.replace(tzinfo=self._timezone)
+        current_time = now.astimezone(self._timezone).strftime("%Y-%m-%d-%H-%M")
+        return (
+            f"<conversation>\n{context_str}\n</conversation>\n"
+            "根据记录自然接话\n"
+            f"信息补充，现在是{current_time}，你可能会需要它。"
+        )
 
     @staticmethod
     def _clean_context_text(text: str) -> str:
