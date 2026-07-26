@@ -37,6 +37,10 @@ class Store(Protocol):
         """将消息追加到对应作用域的短期上下文窗口。"""
         ...
 
+    async def record_chat_message(self, message: NormalizedMessage) -> None:
+        """持久化所有群聊消息；内存实现可为无操作。"""
+        ...
+
     async def get_context(
         self, scope_id: str, limit: int
     ) -> list[NormalizedMessage]:

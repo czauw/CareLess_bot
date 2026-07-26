@@ -186,20 +186,25 @@ def test_hard_trigger_switch_disables_private_reply() -> None:
 def test_guest_conversation_has_two_replies_and_group_cooldowns() -> None:
     from bot.src.plugins.persona.session import GroupConversationService
 
-    service = GroupConversationService(max_replies=2, reply_cooldown_seconds=60, mention_cooldown_seconds=60)
-    first = _message(ScopeType.GROUP, "20001", "机器人 在吗", sender_id="200", is_at_bot=True)
-    assert service.evaluate(first).should_reply
-    service.record_reply(first)
+    async def run() -> None:
+        service = GroupConversationService(
+            MemoryStore(), max_replies=2, reply_cooldown_seconds=60, mention_cooldown_seconds=60
+        )
+        first = _message(ScopeType.GROUP, "20001", "机器人 在吗", sender_id="200", is_at_bot=True)
+        assert (await service.evaluate(first)).should_reply
+        await service.record_reply(first)
 
-    follow_up = _message(ScopeType.GROUP, "20001", "我刚才说的是那个", sender_id="200")
-    assert service.evaluate(follow_up).should_reply
-    service.record_reply(follow_up)
+        follow_up = _message(ScopeType.GROUP, "20001", "我刚才说的是那个", sender_id="200")
+        assert (await service.evaluate(follow_up)).should_reply
+        await service.record_reply(follow_up)
 
-    blocked = _message(ScopeType.GROUP, "20001", "机器人 继续", sender_id="200", is_at_bot=True)
-    assert service.evaluate(blocked).reason == "群艾特冷却中"
+        blocked = _message(ScopeType.GROUP, "20001", "机器人 继续", sender_id="200", is_at_bot=True)
+        assert (await service.evaluate(blocked)).reason == "群艾特冷却中"
 
-    other_group = _message(ScopeType.GROUP, "20002", "机器人 在吗", sender_id="200", is_at_bot=True)
-    assert service.evaluate(other_group).should_reply
+        other_group = _message(ScopeType.GROUP, "20002", "机器人 在吗", sender_id="200", is_at_bot=True)
+        assert (await service.evaluate(other_group)).should_reply
+
+    asyncio.run(run())
 
 
 def test_responder_removes_punctuation_and_uses_exact_cache() -> None:

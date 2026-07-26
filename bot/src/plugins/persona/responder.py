@@ -12,9 +12,21 @@ from __future__ import annotations
 import hashlib
 import time
 import unicodedata
+from datetime import UTC, datetime, timedelta
+from typing import Protocol
 
 from bot.src.core.models import NormalizedMessage
 from bot.src.core.ports import LlmProvider
+
+
+class ResponseCacheStore(Protocol):
+    """可选的持久化精确回复缓存端口。"""
+
+    async def get_llm_cached_response(self, cache_key: str, group_id: str) -> str | None: ...
+
+    async def save_llm_cached_response(
+        self, cache_key: str, group_id: str, response: str, expires_at: datetime
+    ) -> None: ...
 
 
 class Responder:
@@ -38,11 +50,13 @@ class Responder:
         max_reply_length: int = 20,
         cache_enabled: bool = True,
         cache_ttl_seconds: int = 60,
+        cache_store: ResponseCacheStore | None = None,
     ) -> None:
         self._llm = llm
         self._max_len = max_reply_length
         self._cache_enabled = cache_enabled
         self._cache_ttl = cache_ttl_seconds
+        self._cache_store = cache_store
         self._cache: dict[str, tuple[float, str]] = {}
 
     async def generate(
@@ -62,6 +76,11 @@ class Responder:
         cache_key = self._cache_key(trigger_msg, prompt)
         if cached := self._get_cached(cache_key):
             return cached
+        if self._cache_store and trigger_msg.scope_type.value == "group":
+            cached = await self._cache_store.get_llm_cached_response(cache_key, trigger_msg.scope_id)
+            if cached:
+                self._save_cached(cache_key, cached)
+                return cached
 
         try:
             reply = await self._llm.chat(
@@ -82,6 +101,13 @@ class Responder:
         if len(reply) > self._max_len:
             return None
         self._save_cached(cache_key, reply)
+        if self._cache_store and trigger_msg.scope_type.value == "group" and self._cache_ttl > 0:
+            await self._cache_store.save_llm_cached_response(
+                cache_key,
+                trigger_msg.scope_id,
+                reply,
+                datetime.now(UTC) + timedelta(seconds=self._cache_ttl),
+            )
         return reply
 
     @staticmethod

@@ -58,6 +58,8 @@ async def route_message(bot: Bot, event: MessageEvent, matcher: Matcher) -> None
     )
     if not message.message_id or await is_duplicate(runtime.store, message.message_id):
         return
+    if message.scope_type == ScopeType.GROUP:
+        await runtime.store.record_chat_message(message)
 
     try:
         runtime.command_handler._parser.parse(message.text)
@@ -117,7 +119,7 @@ async def _handle_persona(bot: Bot, event: MessageEvent, message: Any) -> None:
         allowed_groups = runtime.config.allowed_group_ids
         if allowed_groups and message.scope_id not in allowed_groups:
             return
-        decision = runtime.group_conversation_service.evaluate(message)
+        decision = await runtime.group_conversation_service.evaluate(message)
         if not decision.should_reply:
             return
 
@@ -140,6 +142,6 @@ async def _handle_persona(bot: Bot, event: MessageEvent, message: Any) -> None:
         if runtime.config.persona_context_enabled:
             await runtime.context_service.append_bot_reply(message, response)
         if not is_admin and message.scope_type == ScopeType.GROUP:
-            runtime.group_conversation_service.record_reply(message)
+            await runtime.group_conversation_service.record_reply(message)
         elif record_gate_reply:
             runtime.persona_gate.record_reply(message)

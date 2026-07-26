@@ -26,6 +26,7 @@ class Runtime:
     """
 
     config: Any = None  # Settings
+    database_engine: Any = None
     store: Store | None = None
     ops_gateway: OpsGateway | None = None
     llm_provider: LlmProvider | None = None

@@ -14,7 +14,9 @@ from bot.src.adapters.memory_store import MemoryStore
 from bot.src.adapters.mock_ops_gateway import MockOpsGateway
 from bot.src.adapters.null_llm import NullLlmProvider
 from bot.src.adapters.openai_compatible_llm import OpenAICompatibleLlmProvider
+from bot.src.adapters.sqlalchemy_store import SqlAlchemyStore
 from bot.src.config import Settings
+from bot.src.persistence.database import create_database_engine, create_session_factory
 from bot.src.core.models import ServerTarget
 from bot.src.core.runtime import Runtime, init_runtime
 from bot.src.core.services.approval_service import ApprovalService
@@ -104,7 +106,12 @@ def build_runtime(
 
     targets = load_server_targets(servers_path)
     persona_options = load_persona_options(persona_path)
-    store = MemoryStore(settings.context_max_messages, settings.context_ttl_seconds)
+    if settings.storage_backend == "sqlalchemy":
+        engine = create_database_engine(settings.sqlalchemy_database_url or "")
+        store = SqlAlchemyStore(create_session_factory(engine))
+    else:
+        engine = None
+        store = MemoryStore(settings.context_max_messages, settings.context_ttl_seconds)
     gateway = MockOpsGateway(default_timeout=settings.ops_command_timeout_seconds)
     for target in targets.values():
         if target.enabled:
@@ -114,6 +121,7 @@ def build_runtime(
 
     runtime = Runtime.create()
     runtime.config = settings
+    runtime.database_engine = engine
     runtime.store = store
     runtime.ops_gateway = gateway
     has_llm = bool(settings.llm_enabled and settings.llm_api_base and settings.llm_api_key)
@@ -134,6 +142,7 @@ def build_runtime(
         ttl_seconds=settings.context_ttl_seconds,
     )
     runtime.group_conversation_service = GroupConversationService(
+        store,
         max_replies=settings.guest_conversation_max_replies,
         session_ttl_seconds=settings.guest_conversation_ttl_seconds,
         reply_cooldown_seconds=settings.guest_group_reply_cooldown_seconds,
@@ -157,6 +166,7 @@ def build_runtime(
         max_reply_length=persona_value(settings, persona_options, "max_reply_length"),
         cache_enabled=settings.response_cache_enabled,
         cache_ttl_seconds=settings.response_cache_ttl_seconds,
+        cache_store=store if settings.storage_backend == "sqlalchemy" else None,
     )
     names = {target.display_name: target.server_id for target in targets.values()}
     runtime.command_handler = CommandHandler(CommandParser(names), gateway, store)

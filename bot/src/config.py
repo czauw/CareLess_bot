@@ -53,6 +53,8 @@ class Settings(BaseSettings):
     allowed_group_ids: set[str] = Field(default_factory=set)
 
     # --- 数据库 ---
+    # memory 不连接数据库；sqlalchemy 仅在业务调用时使用配置的异步 DSN。
+    storage_backend: Literal["memory", "sqlalchemy"] = Field(default="memory")
     sqlalchemy_database_url: str | None = Field(default=None)
 
     # --- 群聊人格 ---
@@ -126,6 +128,8 @@ class Settings(BaseSettings):
             raise ValueError("ONEBOT_ACCESS_TOKEN 使用了示例值，请替换为自己的令牌。")
         if self.admin_commands_enabled and not self.whitelist_qq_ids:
             raise ValueError("WHITELIST_QQ_IDS 为空。至少需要一个白名单 QQ 号。")
+        if self.storage_backend == "sqlalchemy" and not self.sqlalchemy_database_url:
+            raise ValueError("STORAGE_BACKEND=sqlalchemy 时必须配置 SQLALCHEMY_DATABASE_URL。")
         if self.ops_backend == "real" and not self.sqlalchemy_database_url:
             raise ValueError("使用真实 Ops Gateway 时必须配置数据库。")
         return self

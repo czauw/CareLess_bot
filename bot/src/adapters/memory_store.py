@@ -16,6 +16,7 @@ from bot.src.core.models import (
     OperationState,
     ScopeType,
 )
+from bot.src.plugins.persona.session import PersonaCooldown, PersonaSession
 
 
 class MemoryStore:
@@ -42,6 +43,8 @@ class MemoryStore:
 
         # 审计事件列表
         self._audit_log: list[AuditEvent] = []
+        self._persona_sessions: dict[str, PersonaSession] = {}
+        self._persona_cooldowns: dict[str, PersonaCooldown] = {}
 
     # ---- 消息去重 ----
 
@@ -64,6 +67,10 @@ class MemoryStore:
             ctx.popleft()
         # 按时间裁剪
         self._evict_expired(scope_key)
+
+    async def record_chat_message(self, message: NormalizedMessage) -> None:
+        """内存模式不额外保存完整群聊，短期上下文仍由 append_context 管理。"""
+        return None
 
     async def get_context(
         self, scope_id: str, limit: int
@@ -128,6 +135,23 @@ class MemoryStore:
         """追加审计事件。"""
         self._audit_log.append(event)
 
+    # ---- 人格短会话与冷却 ----
+
+    async def get_persona_session(self, group_id: str) -> PersonaSession | None:
+        return self._persona_sessions.get(group_id)
+
+    async def save_persona_session(self, group_id: str, session: PersonaSession) -> None:
+        self._persona_sessions[group_id] = session
+
+    async def delete_persona_session(self, group_id: str) -> None:
+        self._persona_sessions.pop(group_id, None)
+
+    async def get_persona_cooldown(self, group_id: str) -> PersonaCooldown:
+        return self._persona_cooldowns.get(group_id, PersonaCooldown(None, None))
+
+    async def save_persona_cooldown(self, group_id: str, cooldown: PersonaCooldown) -> None:
+        self._persona_cooldowns[group_id] = cooldown
+
     @property
     def audit_events(self) -> tuple[AuditEvent, ...]:
         """返回审计快照，供测试和未来只读审计接口使用。"""
@@ -141,3 +165,5 @@ class MemoryStore:
         self._contexts.clear()
         self._jobs.clear()
         self._audit_log.clear()
+        self._persona_sessions.clear()
+        self._persona_cooldowns.clear()

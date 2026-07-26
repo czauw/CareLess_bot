@@ -7,8 +7,9 @@
 import nonebot
 from nonebot.adapters.onebot.v11 import Adapter as OneBotV11Adapter
 
-from bot.src.config import load_config
 from bot.src.bootstrap import build_runtime
+from bot.src.config import load_config
+from bot.src.core.runtime import get_runtime
 
 # 加载并校验配置
 config = load_config()
@@ -20,6 +21,17 @@ build_runtime(config)
 # 注册 OneBot v11 适配器
 driver = nonebot.get_driver()
 driver.register_adapter(OneBotV11Adapter)
+
+
+@driver.on_shutdown
+async def close_runtime_resources() -> None:
+    """仅在真实启动后释放可选数据库和 LLM HTTP 连接池。"""
+    runtime = get_runtime()
+    if runtime.database_engine is not None:
+        await runtime.database_engine.dispose()
+    close = getattr(runtime.llm_provider, "close", None)
+    if close is not None:
+        await close()
 
 # 导入统一 Matcher 完成注册。业务插件不直接耦合 OneBot 事件。
 import bot.src.plugins.event_ingest.matcher  # noqa: E402, F401

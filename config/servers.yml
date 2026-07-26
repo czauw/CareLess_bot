@@ -6,8 +6,10 @@
 #   driver:       mock（MVP）或 real（未来）
 #   capabilities: 该服务器支持的操作列表
 #
-# 未来替换真实 Gateway 时，driver 只决定服务端适配器，
-# 不改变 QQ 命令和领域模型。
+# enabled: false 时该服务器不会注册到 Gateway，也不能被命令操作。
+# driver: real 为未来预留；当前代码仅允许启用 mock 服务器，real 会在启动时被拒绝。
+# capabilities 只能使用：status、players、logs、start、stop、restart、backup。
+# 未来替换真实 Gateway 时，driver 只决定服务端适配器，不改变 QQ 命令和领域模型。
 
 servers:
   survival:

@@ -1,11 +1,13 @@
 # ============================================================
 # 群聊人格参数（可选覆盖环境变量中的默认值）
 # ============================================================
-# 此文件用于更细粒度的人格调整，MVP 阶段可选。
-# 未指定的项将使用 config.py 中的默认值。
+# 此文件仅覆盖下方 persona 中已经接入运行时的字段，MVP 阶段可选。
+# 会话上限、普通成员冷却、群白名单、数据库和模块总开关请在 bot/.env 配置。
+# 未指定的项将使用 config.py 中的默认值；.env 中显式设置同名 PERSONA_* 时环境变量优先。
 
 persona:
-  # 人格细节默认值。对应 PERSONA_* 环境变量存在时，环境变量优先。
+  # 人格细节默认值。仅 active_probability、group/user_cooldown、
+  # max_active_replies_per_hour、max_reply_length、quiet_* 与触发开关会从本文件读取。
   # PERSONA_ENABLED 是全模块开关，在 bot/.env 中配置。
 
   # 是否允许 @ 机器人或私聊等硬触发回复。
@@ -17,7 +19,7 @@ persona:
   # 基础主动概率（候选消息的 2%）
   active_probability: 0.02
 
-  # 冷却（秒）
+  # 主动插话的通用冷却（秒）；普通成员 @ 短会话使用 .env 的 GUEST_GROUP_* 冷却。
   group_cooldown_seconds: 600
   user_cooldown_seconds: 1200
 
