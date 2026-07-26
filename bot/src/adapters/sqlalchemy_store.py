@@ -308,10 +308,15 @@ class SqlAlchemyStore:
                 group_id=message.scope_id,
                 sender_id=message.sender_id,
                 activity_date=activity_date,
+                # ORM Python defaults are applied on INSERT, not on this newly
+                # constructed object, so incrementing needs concrete values.
+                message_count=0,
+                character_count=0,
             )
             session.add(activity)
-        activity.message_count += 1
-        activity.character_count += len(message.text)
+        # Tolerate legacy rows written before these counters had reliable defaults.
+        activity.message_count = (activity.message_count or 0) + 1
+        activity.character_count = (activity.character_count or 0) + len(message.text)
         activity.last_message_at = message.created_at
 
     @staticmethod

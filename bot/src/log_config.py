@@ -14,12 +14,18 @@ from typing import Any
 
 import yaml
 
+try:
+    from loguru import logger as loguru_logger
+except ImportError:  # pragma: no cover - production NoneBot installs Loguru.
+    loguru_logger = None
+
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_LOGGING_CONFIG = PROJECT_ROOT / "config" / "logging.yml"
 LOG_DIRECTORY = PROJECT_ROOT / "log"
 VALID_LOG_LEVELS = frozenset({"DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"})
 MAX_LOG_FILE_BYTES = 10 * 1024 * 1024
+_loguru_file_sink_id: int | None = None
 
 
 @dataclass(frozen=True)
@@ -130,7 +136,13 @@ def setup_logging(options: LoggingOptions, *, level_override: str | None = None)
     root_logger = logging.getLogger()
     root_logger.setLevel(level)
 
+    global _loguru_file_sink_id
+
     # 仅替换本项目创建的处理器，不干扰测试框架或宿主程序的处理器。
+    # Loguru 的 sink 必须先移除，避免它继续写入一个已关闭的文件处理器。
+    if _loguru_file_sink_id is not None and loguru_logger is not None:
+        loguru_logger.remove(_loguru_file_sink_id)
+        _loguru_file_sink_id = None
     for handler in list(root_logger.handlers):
         if getattr(handler, "_careless_bot_handler", False):
             root_logger.removeHandler(handler)
@@ -141,6 +153,10 @@ def setup_logging(options: LoggingOptions, *, level_override: str | None = None)
     file_handler.setFormatter(formatter)
     file_handler._careless_bot_handler = True  # type: ignore[attr-defined]
     root_logger.addHandler(file_handler)
+    # NoneBot、OneBot 和 Uvicorn 的终端日志使用 Loguru；把它们接到同一个
+    # 轮转文件处理器，保留其原本的控制台输出而不重复打印。
+    if loguru_logger is not None:
+        _loguru_file_sink_id = loguru_logger.add(file_handler, level=level)
 
     if options.console_enabled:
         console_handler = logging.StreamHandler()

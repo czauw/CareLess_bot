@@ -89,8 +89,8 @@ class Settings(BaseSettings):
 
     # --- 群聊人格 ---
     persona_active_probability: float = Field(default=0.02, ge=0.0, le=1.0)
-    persona_group_cooldown_seconds: int = Field(default=600, ge=0)
-    persona_user_cooldown_seconds: int = Field(default=1200, ge=0)
+    persona_group_cooldown_seconds: int = Field(default=120, ge=0)
+    persona_user_cooldown_seconds: int = Field(default=300, ge=0)
     # 管理员白名单可绕过群白名单和普通成员的冷却。
     admin_bypass_group_allowlist: bool = Field(default=True)
     admin_bypass_cooldowns: bool = Field(default=True)

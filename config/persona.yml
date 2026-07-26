@@ -20,8 +20,8 @@ persona:
   active_probability: 0.02
 
   # 主动插话的通用冷却（秒）；普通成员 @ 短会话使用 .env 的 GUEST_GROUP_* 冷却。
-  group_cooldown_seconds: 600
-  user_cooldown_seconds: 1200
+  group_cooldown_seconds: 120
+  user_cooldown_seconds: 300
 
   # 每小时最大主动回复数
   max_active_replies_per_hour: 3

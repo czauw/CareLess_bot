@@ -91,8 +91,8 @@ class GroupMemberActivityDaily(Base):
     group_id: Mapped[str] = mapped_column(ForeignKey("chat_group.group_id"), primary_key=True)
     sender_id: Mapped[str] = mapped_column(String(32), primary_key=True)
     activity_date: Mapped[date] = mapped_column(Date, primary_key=True)
-    message_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
-    character_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    message_count: Mapped[int] = mapped_column(Integer, default=0, server_default="0", nullable=False)
+    character_count: Mapped[int] = mapped_column(Integer, default=0, server_default="0", nullable=False)
     last_message_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
 
