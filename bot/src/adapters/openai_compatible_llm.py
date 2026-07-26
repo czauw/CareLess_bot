@@ -25,16 +25,20 @@ class OpenAICompatibleLlmProvider:
         *,
         max_tokens: int = 200,
         temperature: float = 0.8,
+        thinking_enabled: bool | None = None,
     ) -> str:
+        payload: dict[str, Any] = {
+            "model": self._model,
+            "messages": messages,
+            "max_tokens": max_tokens,
+            "temperature": temperature,
+        }
+        if thinking_enabled is not None:
+            payload["thinking"] = {"type": "enabled" if thinking_enabled else "disabled"}
         response = await self._client.post(
             self._endpoint,
             headers={"Authorization": f"Bearer {self._api_key}"},
-            json={
-                "model": self._model,
-                "messages": messages,
-                "max_tokens": max_tokens,
-                "temperature": temperature,
-            },
+            json=payload,
         )
         response.raise_for_status()
         payload: dict[str, Any] = response.json()

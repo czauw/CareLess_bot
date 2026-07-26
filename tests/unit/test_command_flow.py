@@ -19,6 +19,7 @@ from bot.src.plugins.admin_command.handler import CommandHandler
 from bot.src.plugins.admin_command.parser import CommandParser
 from bot.src.plugins.persona.context import ContextService
 from bot.src.plugins.persona.gate import PersonaGate
+from bot.src.plugins.persona.reply_scheduler import PersonaReplyScheduler
 from bot.src.plugins.persona.responder import Responder, build_profile_prompt
 
 
@@ -138,18 +139,18 @@ def test_context_does_not_mix_group_and_private_with_same_id() -> None:
     assert [message.text for message in private] == ["私聊消息"]
 
 
-def test_responder_rejects_reply_over_configured_length() -> None:
+def test_responder_does_not_apply_a_character_length_limit() -> None:
     class LongReplyLlm:
         async def chat(self, **_: object) -> str:
-            return "过长回复" * 10
+            return '{"messages":["overlong"]}'
 
     response = asyncio.run(
-        Responder(LongReplyLlm(), max_reply_length=8).generate(
+        Responder(LongReplyLlm()).generate(
             _message(ScopeType.GROUP, "20001", "测试"),
             [_message(ScopeType.GROUP, "20001", "测试")],
         )
     )
-    assert response is None
+    assert response == ["overlong"]
 
 
 def test_ops_write_switch_blocks_state_changing_commands() -> None:
@@ -227,25 +228,66 @@ def test_guest_conversation_has_two_replies_and_group_cooldowns() -> None:
     asyncio.run(run())
 
 
-def test_responder_removes_punctuation_and_uses_exact_cache() -> None:
+def test_responder_parses_multiple_messages_and_uses_exact_cache() -> None:
     class CountingLlm:
         def __init__(self) -> None:
             self.calls = 0
 
         async def chat(self, **_: object) -> str:
             self.calls += 1
-            return "嘿 你急了啊。"
+            return '{"messages":["first, relax!", "second message"]}'
 
     llm = CountingLlm()
-    responder = Responder(llm, max_reply_length=20, cache_ttl_seconds=60)
+    responder = Responder(llm, cache_ttl_seconds=60)
     trigger = _message(ScopeType.GROUP, "20001", "别急", is_at_bot=True)
 
     first = asyncio.run(responder.generate(trigger, [trigger]))
     second = asyncio.run(responder.generate(trigger, [trigger]))
 
-    assert first == "嘿 你急了啊"
+    assert first == ["first, relax!", "second message"]
     assert second == first
     assert llm.calls == 1
+
+
+def test_responder_limits_json_messages_to_three() -> None:
+    class FourMessagesLlm:
+        async def chat(self, **_: object) -> str:
+            return '{"messages":["one","two","three","four"]}'
+
+    response = asyncio.run(
+        Responder(FourMessagesLlm()).generate(
+            _message(ScopeType.PRIVATE, "10001", "test"),
+            [_message(ScopeType.PRIVATE, "10001", "test")],
+        )
+    )
+    assert response == ["one", "two", "three"]
+
+
+def test_reply_scheduler_replaces_a_waiting_scope_task() -> None:
+    async def run() -> None:
+        scheduler = PersonaReplyScheduler(
+            enabled=False,
+            min_delay_seconds=0,
+            max_delay_seconds=0,
+            followup_min_delay_seconds=0,
+            followup_max_delay_seconds=0,
+        )
+        delivered: list[str] = []
+
+        async def old() -> None:
+            delivered.append("old")
+
+        async def new() -> None:
+            delivered.append("new")
+
+        assert scheduler.schedule("private:10001", old)
+        assert scheduler.schedule("private:10001", new)
+        await asyncio.sleep(0)
+        await asyncio.sleep(0)
+        assert delivered == ["new"]
+        await scheduler.close()
+
+    asyncio.run(run())
 
 
 def test_persona_profile_is_disabled_by_default_and_stable_when_enabled() -> None:

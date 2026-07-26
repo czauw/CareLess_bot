@@ -18,6 +18,8 @@
 - 可运行的 NapCat（或其他支持 OneBot 11 反向 WebSocket 的实现）和已登录 QQ
 - 可选：OpenAI 兼容 API，用于真实人格回复
 
+`requirements.txt` 已包含 Windows 使用 `Asia/Shanghai` 所需的 `tzdata`。
+
 安装依赖：
 
 ```powershell
@@ -62,7 +64,7 @@ python -m bot.src.bot
 
 启动成功后检查 `log/careless-bot.log`。日志等级、备份数量和控制台输出在 `config/logging.yml` 调整；每个日志文件最大 10MB，`log/` 不会提交到 Git。
 
-连接成功后，在白名单账号的私聊或群内 `@` 机器人发送普通文本，确认能收到回复。未配置 `LLM_API_BASE` 和 `LLM_API_KEY` 时使用本地降级回复；配置后才会调用远程 OpenAI 兼容接口。
+连接成功后，在白名单账号的私聊或群内 `@` 机器人发送普通文本，确认能收到回复。人格回复默认在 15–30 秒后异步发送；同一私聊或群在等待期内有新消息时，会以新消息替换尚未发送的旧回复。未配置 `LLM_API_BASE` 和 `LLM_API_KEY` 时使用本地降级回复；配置后才会调用远程 OpenAI 兼容接口。
 
 ## 可选数据库初始化
 
@@ -74,9 +76,11 @@ SQLALCHEMY_DATABASE_URL=mysql+aiomysql://用户名:密码@数据库地址:3306/c
 DATABASE_SCHEMA_MODE=migrate
 ```
 
+项目依赖已包含 MySQL 8 的 SHA2 密码认证所需的 `cryptography`；安装 requirements 后无需单独处理。
+
 首次启动使用 `migrate`：机器人会先执行连接检测，再取得 MySQL advisory lock，并自动执行 Alembic `upgrade head` 创建或升级表结构。迁移失败时机器人不会继续启动。
 
-成功初始化后，把 `DATABASE_SCHEMA_MODE` 改回 `validate`。该默认模式只检测连接并确认数据库 revision 与代码的最新 revision 一致；空库、落后版本或未来版本都会拒绝启动，不会隐式改表。多实例部署时只应让一个实例使用 `migrate`。
+成功初始化后，把 `DATABASE_SCHEMA_MODE` 改回 `validate`。该默认模式只检测连接并确认数据库 revision 与代码的最新 revision 一致；空库、落后版本或未来版本都会拒绝启动，不会隐式改表。当前最新 revision `20260726_03` 会把 `chat_message` 升级为群聊/私聊通用 scope，并把精确回复缓存升级为不限制字符数的 `TEXT`；旧群聊记录自动回填为 `group`。若 MySQL 在 DDL 间中断，下一次 `migrate` 会识别已完成的列变更并继续。多实例部署时只应让一个实例使用 `migrate`。
 
 ## 人格配置
 
@@ -89,7 +93,9 @@ profile:
 
 将 `enabled` 改为 `true` 后，可以填写 `name`、`identity`、`background`、`traits`、`speaking_style` 与 `boundaries`。这些字段会被加入稳定系统提示词；不要在 YAML 中填写 API 密钥或真实个人敏感信息。
 
-普通成员必须在允许群中 `@` 机器人才能开始会话。每次会话最多两条机器人回复，群级回复与再次艾特均受 `.env` 中的 `GUEST_GROUP_*_COOLDOWN_SECONDS` 控制。管理员可以按配置绕过群白名单和冷却。
+普通成员必须在允许群中 `@` 机器人才能开始会话。每次会话最多两轮逻辑回复，群级回复与再次艾特均受 `.env` 中的 `GUEST_GROUP_*_COOLDOWN_SECONDS` 控制。单轮回复由模型输出 JSON `messages` 列表，通常发送一条、必要时最多三条实际 QQ 消息；后续消息间会有 1–4 秒自然停顿。管理员可以按配置绕过群白名单和冷却。SQLAlchemy 模式会持久化所有群聊、私聊文本和机器人成功回复；模型分别按群号或私聊对象从数据库读取最近上下文，不会跨作用域混用。
+
+`.env` 中可通过 `PERSONA_REPLY_DELAY_ENABLED` 开关延迟；`PERSONA_REPLY_DELAY_MIN_SECONDS` 与 `PERSONA_REPLY_DELAY_MAX_SECONDS` 默认是 15 和 30。`PERSONA_FOLLOWUP_DELAY_*` 控制同一轮后续消息的短停顿，`PERSONA_REPLY_MAX_MESSAGES` 固定上限为 3。项目不伪造 QQ “正在输入”状态。
 
 若希望机器人偶尔主动插话，将 `.env` 的 `PERSONA_SOFT_TRIGGER_ENABLED` 设为 `true`，并在 `config/persona.yml` 设置 `active_probability`。每条未艾特且不在短会话中的允许群消息都会在静默、群/用户冷却和每小时额度检查后参与概率抽样；例如 `0.02` 表示满足前置条件的消息有 2% 概率触发。主动回复成功后会记录冷却与额度。
 

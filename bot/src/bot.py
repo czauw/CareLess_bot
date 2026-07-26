@@ -49,6 +49,8 @@ driver.register_adapter(OneBotV11Adapter)
 async def close_runtime_resources() -> None:
     """仅在真实启动后释放可选数据库和 LLM HTTP 连接池。"""
     runtime = get_runtime()
+    if runtime.persona_reply_scheduler is not None:
+        await runtime.persona_reply_scheduler.close()
     if runtime.database_engine is not None:
         await runtime.database_engine.dispose()
     close = getattr(runtime.llm_provider, "close", None)
@@ -63,7 +65,8 @@ import bot.src.plugins.event_ingest.matcher  # noqa: E402, F401
 def run() -> None:
     """启动机器人。"""
     logger.info("启动 CareLess Bot")
-    nonebot.run()
+    # 显式传入监听参数，避免运行阶段回退到 NoneBot 驱动默认值。
+    nonebot.run(host=config.host, port=config.port)
 
 
 if __name__ == "__main__":

@@ -38,7 +38,7 @@ class Store(Protocol):
         ...
 
     async def record_chat_message(self, message: NormalizedMessage) -> None:
-        """持久化所有群聊消息；内存实现可为无操作。"""
+        """持久化所有群聊、私聊消息；内存实现可为无操作。"""
         ...
 
     async def get_context(
@@ -121,6 +121,7 @@ class LlmProvider(Protocol):
         *,
         max_tokens: int = 200,
         temperature: float = 0.8,
+        thinking_enabled: bool | None = None,
     ) -> str:
         """发送对话并返回生成的文本。"""
         ...

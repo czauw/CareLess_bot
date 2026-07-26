@@ -13,7 +13,6 @@ from sqlalchemy.ext.asyncio import create_async_engine
 
 logger = logging.getLogger(__name__)
 BOT_ROOT = Path(__file__).resolve().parents[2]
-ALEMBIC_INI = BOT_ROOT / "alembic.ini"
 MIGRATION_LOCK_NAME = "careless_bot_schema_migration"
 
 
@@ -28,7 +27,8 @@ def _alembic_config(database_url: str) -> Any:
     except ImportError as error:
         raise DatabaseSchemaError("未安装 alembic，无法校验或迁移 SQLAlchemy 数据库") from error
 
-    config = Config(str(ALEMBIC_INI))
+    # 不读取 alembic.ini，避免 Windows 非 UTF-8 系统代码页解析中文注释失败。
+    config = Config()
     config.set_main_option("script_location", str(BOT_ROOT / "alembic"))
     config.attributes["database_url"] = database_url
     return config
@@ -61,6 +61,10 @@ async def _read_database_revision(database_url: str) -> str | None:
                 return None
             return (await connection.execute(text("SELECT version_num FROM alembic_version"))).scalar_one_or_none()
     except Exception as error:
+        if "cryptography" in str(error).lower():
+            raise DatabaseSchemaError(
+                "数据库账户使用 MySQL SHA2 认证，请安装 cryptography 依赖后重试"
+            ) from error
         raise DatabaseSchemaError("数据库连接检测失败，请检查 SQLALCHEMY_DATABASE_URL 和数据库服务") from error
     finally:
         await engine.dispose()

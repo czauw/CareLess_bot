@@ -45,19 +45,23 @@ class ChatGroup(Base):
 
 
 class ChatMessage(Base):
-    """所有机器人所在群的规范化文本消息。"""
+    """所有群聊和私聊的规范化文本消息。"""
 
     __tablename__ = "chat_message"
     __table_args__ = (
         UniqueConstraint("platform", "platform_message_id", name="uq_chat_message_platform_id"),
         Index("ix_chat_message_group_sent", "group_id", "sent_at", "id"),
         Index("ix_chat_message_group_sender_sent", "group_id", "sender_id", "sent_at"),
+        Index("ix_chat_message_scope_sent", "scope_type", "scope_id", "sent_at", "id"),
     )
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
     platform: Mapped[str] = mapped_column(String(24), default="onebot_v11", nullable=False)
     platform_message_id: Mapped[str] = mapped_column(String(64), nullable=False)
-    group_id: Mapped[str] = mapped_column(ForeignKey("chat_group.group_id"), nullable=False)
+    # 群消息填写 group_id；私聊为 NULL，统一使用 scope_type/scope_id 检索上下文。
+    group_id: Mapped[str | None] = mapped_column(ForeignKey("chat_group.group_id"), nullable=True)
+    scope_type: Mapped[str] = mapped_column(String(16), nullable=False)
+    scope_id: Mapped[str] = mapped_column(String(32), nullable=False)
     sender_id: Mapped[str] = mapped_column(String(32), nullable=False)
     sender_alias: Mapped[str] = mapped_column(String(128), default="", nullable=False)
     normalized_text: Mapped[str] = mapped_column(Text, nullable=False)
@@ -144,7 +148,8 @@ class LlmResponseCache(Base):
     cache_key: Mapped[str] = mapped_column(String(64), primary_key=True)
     group_id: Mapped[str] = mapped_column(ForeignKey("chat_group.group_id"), nullable=False, index=True)
     memory_version: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
-    response_text: Mapped[str] = mapped_column(String(80), nullable=False)
+    # 回复本身不设字符上限，缓存列不能成为隐性截断点。
+    response_text: Mapped[str] = mapped_column(Text, nullable=False)
     expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, index=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, nullable=False)
 

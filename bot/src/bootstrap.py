@@ -29,6 +29,7 @@ from bot.src.plugins.admin_command.handler import CommandHandler
 from bot.src.plugins.admin_command.parser import CommandParser
 from bot.src.plugins.persona.context import ContextService
 from bot.src.plugins.persona.gate import PersonaGate
+from bot.src.plugins.persona.reply_scheduler import PersonaReplyScheduler
 from bot.src.plugins.persona.responder import Responder
 from bot.src.plugins.persona.session import GroupConversationService
 
@@ -170,11 +171,20 @@ def build_runtime(
     )
     runtime.responder = Responder(
         runtime.llm_provider,
-        max_reply_length=persona_value(settings, persona_options, "max_reply_length"),
+        llm_max_tokens=settings.llm_max_tokens,
+        llm_thinking_enabled=settings.llm_thinking_enabled,
         profile=persona_options.get("profile"),
+        max_messages=settings.persona_reply_max_messages,
         cache_enabled=settings.response_cache_enabled,
         cache_ttl_seconds=settings.response_cache_ttl_seconds,
         cache_store=store if settings.storage_backend == "sqlalchemy" else None,
+    )
+    runtime.persona_reply_scheduler = PersonaReplyScheduler(
+        enabled=settings.persona_reply_delay_enabled,
+        min_delay_seconds=settings.persona_reply_delay_min_seconds,
+        max_delay_seconds=settings.persona_reply_delay_max_seconds,
+        followup_min_delay_seconds=settings.persona_followup_delay_min_seconds,
+        followup_max_delay_seconds=settings.persona_followup_delay_max_seconds,
     )
     names = {target.display_name: target.server_id for target in targets.values()}
     runtime.command_handler = CommandHandler(CommandParser(names), gateway, store)

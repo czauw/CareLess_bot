@@ -39,12 +39,12 @@ from bot.src.plugins.persona.session import PersonaCooldown, PersonaSession
 
 
 class SqlAlchemyStore:
-    """实现当前 Store 端口，并将群聊数据写入已规划的 SQL 表。"""
+    """实现当前 Store 端口，并将群聊、私聊数据写入持久化消息表。"""
 
     def __init__(self, session_factory: async_sessionmaker[AsyncSession]) -> None:
         self._sessions = session_factory
 
-    # ---- 消息去重与完整群聊记录 ----
+    # ---- 消息去重与完整聊天记录 ----
 
     async def claim_message(self, message_id: str) -> bool:
         """原子声明 OneBot 消息 ID；冲突表示消息已处理。"""
@@ -70,16 +70,19 @@ class SqlAlchemyStore:
             return False
 
     async def record_chat_message(self, message: NormalizedMessage) -> None:
-        """保存所有群聊消息并更新当天成员活跃计数。"""
-        if message.scope_type != ScopeType.GROUP:
-            return
+        """保存所有群聊、私聊消息；活跃度统计仅适用于群聊。"""
         async with self._sessions() as session:
             async with session.begin():
-                await self._ensure_group(session, message.scope_id)
+                group_id: str | None = None
+                if message.scope_type == ScopeType.GROUP:
+                    group_id = message.scope_id
+                    await self._ensure_group(session, group_id)
                 session.add(
                     ChatMessage(
                         platform_message_id=message.message_id,
-                        group_id=message.scope_id,
+                        group_id=group_id,
+                        scope_type=message.scope_type.value,
+                        scope_id=message.scope_id,
                         sender_id=message.sender_id,
                         sender_alias=message.sender_alias[:128],
                         normalized_text=message.text,
@@ -89,22 +92,26 @@ class SqlAlchemyStore:
                         sent_at=message.created_at,
                     )
                 )
-                await self._increment_daily_activity(session, message)
+                if message.scope_type == ScopeType.GROUP:
+                    await self._increment_daily_activity(session, message)
 
     async def append_context(self, message: NormalizedMessage) -> None:
         """入站消息已由路由全量保存；这里只补存机器人成功回复。"""
-        if message.scope_type == ScopeType.GROUP and message.sender_id == "bot":
+        if message.sender_id == "bot":
             await self.record_chat_message(message)
 
     async def get_context(self, scope_id: str, limit: int) -> list[NormalizedMessage]:
-        """按时间读取群线性上下文；私聊数据库记录不属于本次需求范围。"""
-        if not scope_id.startswith("group:"):
+        """按作用域和时间读取数据库中的线性上下文。"""
+        scope_type_value, separator, actual_scope_id = scope_id.partition(":")
+        if not separator or scope_type_value not in {ScopeType.GROUP.value, ScopeType.PRIVATE.value}:
             return []
-        group_id = scope_id.removeprefix("group:")
         async with self._sessions() as session:
             statement = (
                 select(ChatMessage)
-                .where(ChatMessage.group_id == group_id)
+                .where(
+                    ChatMessage.scope_type == scope_type_value,
+                    ChatMessage.scope_id == actual_scope_id,
+                )
                 .order_by(ChatMessage.sent_at.desc(), ChatMessage.id.desc())
                 .limit(limit)
             )
@@ -309,17 +316,25 @@ class SqlAlchemyStore:
 
     @staticmethod
     def _to_message(record: ChatMessage) -> NormalizedMessage:
+        # MySQL 的 DATETIME 不保留时区；本项目写入时统一使用 UTC，读取后必须
+        # 显式恢复 UTC，否则 datetime.timestamp() 会将其误当作本机时区，导致 TTL
+        # 把刚收到的私聊或群聊记录错误淘汰。
+        sent_at = record.sent_at
+        if sent_at.tzinfo is None:
+            sent_at = sent_at.replace(tzinfo=UTC)
+        else:
+            sent_at = sent_at.astimezone(UTC)
         return NormalizedMessage(
             message_id=record.platform_message_id,
             sender_id=record.sender_id,
             sender_alias=record.sender_alias,
-            scope_type=ScopeType.GROUP,
-            scope_id=record.group_id,
+            scope_type=ScopeType(record.scope_type),
+            scope_id=record.scope_id,
             text=record.normalized_text,
             message_type=record.message_type,
             reply_to=record.reply_to_message_id,
             is_at_bot=record.is_at_bot,
-            created_at=record.sent_at,
+            created_at=sent_at,
         )
 
     @staticmethod

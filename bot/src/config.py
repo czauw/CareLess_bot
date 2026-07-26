@@ -101,7 +101,15 @@ class Settings(BaseSettings):
     guest_group_reply_cooldown_seconds: int = Field(default=120, ge=0)
     guest_group_mention_cooldown_seconds: int = Field(default=300, ge=0)
     persona_max_active_replies_per_hour: int = Field(default=3, ge=0)
-    persona_max_reply_length: int = Field(default=20, ge=1, le=20)
+    # 拟人回复延迟使用独立后台任务，不阻塞其他消息处理。
+    persona_reply_delay_enabled: bool = Field(default=True)
+    persona_reply_delay_min_seconds: float = Field(default=15.0, ge=0.0, le=600.0)
+    persona_reply_delay_max_seconds: float = Field(default=30.0, ge=0.0, le=600.0)
+    # 分成多条 QQ 消息时，后续消息只使用较短的自然停顿。
+    persona_followup_delay_min_seconds: float = Field(default=1.0, ge=0.0, le=60.0)
+    persona_followup_delay_max_seconds: float = Field(default=4.0, ge=0.0, le=60.0)
+    # 模型最多返回三条实际 QQ 消息；多数情况由提示词引导为一条。
+    persona_reply_max_messages: int = Field(default=3, ge=1, le=3)
     persona_quiet_start: str = Field(default="00:30")
     persona_quiet_end: str = Field(default="07:30")
 
@@ -130,6 +138,10 @@ class Settings(BaseSettings):
     llm_api_base: str | None = Field(default=None)
     llm_api_key: str | None = Field(default=None)
     llm_model: str = Field(default="gpt-4o-mini")
+    # 机器人短回复默认关闭思考模式，48 token 足够生成最终正文。
+    llm_max_tokens: int = Field(default=48, ge=16, le=512)
+    # DeepSeek 等兼容服务支持 thinking 参数；短回复默认关闭以避免 token 被推理占尽。
+    llm_thinking_enabled: bool = Field(default=False)
 
     # --- Hermes (P2) ---
     hermes_api_base: str | None = Field(default=None)
@@ -162,6 +174,10 @@ class Settings(BaseSettings):
             raise ValueError("STORAGE_BACKEND=sqlalchemy 时必须配置 SQLALCHEMY_DATABASE_URL。")
         if self.ops_backend == "real" and not self.sqlalchemy_database_url:
             raise ValueError("使用真实 Ops Gateway 时必须配置数据库。")
+        if self.persona_reply_delay_min_seconds > self.persona_reply_delay_max_seconds:
+            raise ValueError("PERSONA_REPLY_DELAY_MIN_SECONDS 不能大于最大延迟。")
+        if self.persona_followup_delay_min_seconds > self.persona_followup_delay_max_seconds:
+            raise ValueError("PERSONA_FOLLOWUP_DELAY_MIN_SECONDS 不能大于最大延迟。")
         return self
 
     @property

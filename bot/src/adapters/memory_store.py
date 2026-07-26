@@ -69,7 +69,7 @@ class MemoryStore:
         self._evict_expired(scope_key)
 
     async def record_chat_message(self, message: NormalizedMessage) -> None:
-        """内存模式不额外保存完整群聊，短期上下文仍由 append_context 管理。"""
+        """内存模式不额外保存完整聊天记录，短期上下文仍由 append_context 管理。"""
         return None
 
     async def get_context(

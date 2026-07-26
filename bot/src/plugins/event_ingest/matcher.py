@@ -5,6 +5,7 @@
 
 from __future__ import annotations
 
+import logging
 from typing import Any
 
 from nonebot import on_message
@@ -20,6 +21,7 @@ from bot.src.plugins.event_ingest.normalize import normalize_group_message, norm
 
 
 message_router = on_message(priority=1, block=True)
+logger = logging.getLogger(__name__)
 
 
 def _event_dict(event: MessageEvent) -> dict[str, Any]:
@@ -28,9 +30,16 @@ def _event_dict(event: MessageEvent) -> dict[str, Any]:
         "user_id": event.user_id,
         "group_id": getattr(event, "group_id", ""),
         "sender": event.sender.model_dump(),
-        "raw_message": event.get_raw_message(),
+        # NoneBot 2.5 的 MessageEvent 不再提供 get_raw_message()；
+        # Message 的字符串表示保留 CQ 码，供 @ 识别与上下文使用。
+        "raw_message": str(event.get_message()),
         "message_type": event.message_type,
     }
+
+
+def _mask_sender_id(sender_id: str) -> str:
+    """日志中仅保留 QQ 号后四位。"""
+    return f"***{sender_id[-4:]}" if len(sender_id) >= 4 else "***"
 
 
 async def _send(bot: Bot, event: MessageEvent, text: str) -> None:
@@ -56,10 +65,19 @@ async def route_message(bot: Bot, event: MessageEvent, matcher: Matcher) -> None
         if isinstance(event, GroupMessageEvent)
         else normalize_private_message(raw_event, runtime.config.bot_qq_id)
     )
+    logger.info(
+        "收到 OneBot 消息 scope=%s:%s sender=%s at_bot=%s message_id=%s",
+        message.scope_type.value,
+        message.scope_id,
+        _mask_sender_id(message.sender_id),
+        message.is_at_bot,
+        message.message_id,
+    )
     if not message.message_id or await is_duplicate(runtime.store, message.message_id):
+        logger.debug("消息已去重或缺少 message_id，忽略处理")
         return
-    if message.scope_type == ScopeType.GROUP:
-        await runtime.store.record_chat_message(message)
+    # 所有私聊、群聊入站消息均持久化；上下文读取由 Store 按作用域完成。
+    await runtime.store.record_chat_message(message)
 
     try:
         runtime.command_handler._parser.parse(message.text)
@@ -149,20 +167,50 @@ async def _handle_persona(bot: Bot, event: MessageEvent, message: Any) -> None:
 
     if runtime.config.persona_context_enabled and not context_appended:
         await runtime.context_service.append(message)
-    context = (
-        await runtime.context_service.get_recent(
-            message.scope_id,
-            scope_type=message.scope_type,
+    async def generate_and_send() -> None:
+        # 延迟结束后再读取数据库上下文，使等待期内的新消息也进入本次回复参考。
+        context = (
+            await runtime.context_service.get_recent(
+                message.scope_id,
+                scope_type=message.scope_type,
+            )
+            if runtime.config.persona_context_enabled
+            else [message]
         )
-        if runtime.config.persona_context_enabled
-        else [message]
-    )
-    response = await runtime.responder.generate(message, context)
-    if response:
-        await _send(bot, event, response)
-        if runtime.config.persona_context_enabled:
-            await runtime.context_service.append_bot_reply(message, response)
+        if not context:
+            context = [message]
+        responses = await runtime.responder.generate(message, context)
+        if not responses:
+            logger.warning("人格回复未生成 scope=%s:%s", message.scope_type.value, message.scope_id)
+            return
+
+        sent_count = 0
+        for index, response in enumerate(responses):
+            try:
+                await _send(bot, event, response)
+            except Exception:
+                logger.exception("人格回复发送失败 scope=%s:%s", message.scope_type.value, message.scope_id)
+                break
+            sent_count += 1
+            if runtime.config.persona_context_enabled:
+                await runtime.context_service.append_bot_reply(message, response)
+            if index + 1 < len(responses):
+                await runtime.persona_reply_scheduler.wait_before_followup()
+
+        if not sent_count:
+            return
+        logger.info(
+            "人格回复已发送 scope=%s:%s messages=%s",
+            message.scope_type.value,
+            message.scope_id,
+            sent_count,
+        )
+        # 多条实际消息仍是一轮逻辑回复，只消耗一次会话额度或冷却记录。
         if group_conversation_reply:
             await runtime.group_conversation_service.record_reply(message)
         elif record_gate_reply:
             runtime.persona_gate.record_reply(message)
+
+    scope_key = runtime.context_service.scope_key(message.scope_type, message.scope_id)
+    if runtime.persona_reply_scheduler.schedule(scope_key, generate_and_send):
+        logger.debug("人格回复已安排 scope=%s", scope_key)

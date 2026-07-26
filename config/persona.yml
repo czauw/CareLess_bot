@@ -7,7 +7,7 @@
 
 persona:
   # 人格细节默认值。仅 active_probability、group/user_cooldown、
-  # max_active_replies_per_hour、max_reply_length、quiet_* 与触发开关会从本文件读取。
+  # max_active_replies_per_hour、quiet_* 与触发开关会从本文件读取。
   # PERSONA_ENABLED 是全模块开关，在 bot/.env 中配置。
 
   # 是否允许 @ 机器人或私聊等硬触发回复。
@@ -25,9 +25,6 @@ persona:
 
   # 每小时最大主动回复数
   max_active_replies_per_hour: 3
-
-  # 回复最大长度。代码强制限制为一行、20 字以内并移除标点。
-  max_reply_length: 20
 
   # 夜间静默时段（时区由 TIMEZONE 决定）
   quiet_start: "00:30"

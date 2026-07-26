@@ -8,6 +8,9 @@
 
 from __future__ import annotations
 
+import json
+import random
+
 
 class NullLlmProvider:
     """LLM 不可用时的安全降级。"""
@@ -27,7 +30,7 @@ class NullLlmProvider:
         *,
         max_tokens: int = 200,
         temperature: float = 0.8,
+        thinking_enabled: bool | None = None,
     ) -> str:
         """返回安全降级文本，不调用任何外部 API。"""
-        import random
-        return random.choice(self.FALLBACK_REPLIES)
+        return json.dumps({"messages": [random.choice(self.FALLBACK_REPLIES)]}, ensure_ascii=False)

@@ -1,8 +1,8 @@
-"""群级短期上下文管理。
+"""作用域级短期上下文管理。
 
-每个群独立维护一个滚动窗口：
-- 默认 30 条消息或 20 分钟，先到者淘汰
-- 群聊与私聊上下文隔离
+每个群或私聊对象独立维护一个滚动窗口：
+- 消息由 Store 持久化，按最近记录读取
+- 群聊与私聊上下文严格隔离
 """
 
 from __future__ import annotations
@@ -32,7 +32,7 @@ class ContextService:
         self._ttl_seconds = ttl_seconds
 
     async def append(self, message: NormalizedMessage) -> None:
-        """将消息追加到对应群的上下文窗口。"""
+        """将消息追加到对应作用域的上下文窗口。"""
         await self._store.append_context(message)
 
     async def append_bot_reply(self, trigger: NormalizedMessage, text: str) -> None:
@@ -63,6 +63,9 @@ class ContextService:
         messages = await self._store.get_context(
             self.scope_key(scope_type, scope_id), limit=limit or self._max_messages
         )
+        if self._ttl_seconds > 0:
+            cutoff = datetime.now(UTC).timestamp() - self._ttl_seconds
+            messages = [message for message in messages if message.created_at.timestamp() >= cutoff]
         return self._within_token_budget(messages)
 
     def _within_token_budget(

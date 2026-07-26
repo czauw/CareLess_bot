@@ -19,6 +19,7 @@ def test_missing_env_file_is_created_from_example(tmp_path) -> None:
 def test_sqlalchemy_backend_requires_a_database_url() -> None:
     with pytest.raises(ValidationError, match="SQLALCHEMY_DATABASE_URL"):
         Settings(
+            _env_file=None,
             onebot_access_token="abcdefgh",
             whitelist_qq_ids="10001",
             storage_backend="sqlalchemy",
@@ -27,6 +28,7 @@ def test_sqlalchemy_backend_requires_a_database_url() -> None:
 
 def test_memory_backend_does_not_require_database_url() -> None:
     settings = Settings(
+        _env_file=None,
         onebot_access_token="abcdefgh",
         whitelist_qq_ids="10001",
         storage_backend="memory",
@@ -36,6 +38,6 @@ def test_memory_backend_does_not_require_database_url() -> None:
 
 
 def test_database_schema_mode_defaults_to_validate() -> None:
-    settings = Settings(onebot_access_token="abcdefgh", whitelist_qq_ids="10001")
+    settings = Settings(_env_file=None, onebot_access_token="abcdefgh", whitelist_qq_ids="10001")
 
     assert settings.database_schema_mode == "validate"
