@@ -31,8 +31,12 @@ log_file = setup_logging(logging_options, level_override=log_override)
 logger = logging.getLogger(__name__)
 logger.info("日志已初始化: %s", log_file)
 
-# 初始化 NoneBot，并将 OneBot 鉴权令牌传给适配器配置。
-nonebot.init(onebot_access_token=config.onebot_access_token)
+# 初始化 NoneBot 反向 WebSocket 服务，并将 OneBot 鉴权令牌传给适配器配置。
+nonebot.init(
+    host=config.host,
+    port=config.port,
+    onebot_access_token=config.onebot_access_token,
+)
 build_runtime(config)
 logger.info("运行时已初始化")
 

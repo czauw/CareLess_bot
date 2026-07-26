@@ -1,7 +1,7 @@
 """MySQL 8 / SQLAlchemy 2.x 表结构。
 
 正文表只保存群聊文本和必要元数据，不保存媒体二进制。时间均使用 UTC。
-实际建表由未来的 Alembic migration 执行，本文件只声明 schema。
+实际建表由 Alembic migration 执行，本文件只声明当前 schema。
 """
 
 from __future__ import annotations

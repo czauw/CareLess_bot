@@ -50,7 +50,9 @@ class Settings(BaseSettings):
 
     # --- QQ / OneBot 连接 ---
     onebot_access_token: str = Field(default="", min_length=8)
-    onebot_reverse_ws: str = Field(default="ws://127.0.0.1:8080/onebot/v11/ws")
+    # NoneBot 反向 WebSocket 服务监听地址；NapCat 应连接到 /onebot/v11/ws。
+    host: str = Field(default="127.0.0.1")
+    port: int = Field(default=8080, ge=1, le=65535)
     bot_qq_id: str = Field(default="")
 
     # --- 全局与模块开关 ---
@@ -78,9 +80,12 @@ class Settings(BaseSettings):
     allowed_group_ids: set[str] = Field(default_factory=set)
 
     # --- 数据库 ---
-    # memory 不连接数据库；sqlalchemy 仅在业务调用时使用配置的异步 DSN。
+    # memory 不连接数据库；sqlalchemy 启动时会检测连接并校验数据库结构。
     storage_backend: Literal["memory", "sqlalchemy"] = Field(default="memory")
     sqlalchemy_database_url: str | None = Field(default=None)
+    # validate 仅校验 revision；migrate 会在启动时执行 Alembic upgrade head。
+    database_schema_mode: Literal["validate", "migrate"] = Field(default="validate")
+    database_migration_lock_timeout_seconds: int = Field(default=60, ge=1, le=600)
 
     # --- 群聊人格 ---
     persona_active_probability: float = Field(default=0.02, ge=0.0, le=1.0)

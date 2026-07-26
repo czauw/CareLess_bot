@@ -183,6 +183,26 @@ def test_hard_trigger_switch_disables_private_reply() -> None:
     assert result.reason == "硬触发已关闭"
 
 
+def test_soft_trigger_records_cooldown_after_successful_reply() -> None:
+    gate = PersonaGate(
+        active_probability=1.0,
+        group_cooldown_seconds=60,
+        user_cooldown_seconds=60,
+        max_active_replies_per_hour=3,
+        soft_trigger_enabled=True,
+    )
+    message = _message(ScopeType.GROUP, "20001", "今天真热", sender_id="200")
+
+    first = gate.evaluate(message)
+    assert first.should_reply
+    assert first.reason == "软触发抽中"
+    gate.record_reply(message)
+
+    blocked = gate.evaluate(message)
+    assert not blocked.should_reply
+    assert blocked.reason == "回复冷却中"
+
+
 def test_guest_conversation_has_two_replies_and_group_cooldowns() -> None:
     from bot.src.plugins.persona.session import GroupConversationService
 

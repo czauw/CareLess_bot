@@ -1,7 +1,7 @@
 """SQLAlchemy 持久化适配器。
 
 所有方法均在调用时创建短生命周期异步会话。本模块不负责迁移建表；
-部署前必须显式执行 Alembic migration。
+启动前会按 DATABASE_SCHEMA_MODE 校验或执行 Alembic migration。
 """
 
 from __future__ import annotations

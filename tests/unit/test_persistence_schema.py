@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from pathlib import Path
+
 from bot.src.persistence.models import Base, ChatMessage, GroupMemorySummary, OperationJobRecord
 
 
@@ -26,3 +28,9 @@ def test_schema_declares_all_required_persistence_tables() -> None:
     assert "normalized_text" in ChatMessage.__table__.c
     assert "memory_version" in GroupMemorySummary.__table__.c
     assert "normalized_params" in OperationJobRecord.__table__.c
+
+
+def test_initial_alembic_revision_is_available() -> None:
+    revision_file = Path("bot/alembic/versions/20260726_01_initial_schema.py")
+    assert revision_file.is_file()
+    assert 'revision = "20260726_01"' in revision_file.read_text(encoding="utf-8")

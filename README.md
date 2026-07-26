@@ -2,6 +2,8 @@
 
 基于 NoneBot2 和 OneBot 11 的 QQ 机器人，包含群聊人格与受控服务器管理命令。当前项目只提供代码与本地开发配置，不会自动部署、连接真实服务器或连接数据库。
 
+完整运行步骤、NapCat 对接和能力边界见 [使用文档](docs/USAGE.md)。
+
 ## 已实现功能
 
 - 统一接收群聊和私聊消息，并按 `message_id` 去重。
@@ -47,7 +49,7 @@ LLM_MODEL=gpt-4o-mini
 | 人格会话     | `GUEST_CONVERSATION_*`、`GUEST_GROUP_*_COOLDOWN_SECONDS`                      | 配置普通成员会话上限、有效期，以及按群独立的回复和艾特冷却。上限由代码限制为 1 到 2。 |
 | 上下文与缓存 | `CONTEXT_*`、`RESPONSE_CACHE_*`                                               | 配置线性记忆预算、保留时间和精确回复缓存 TTL。                                        |
 | 运维         | `OPS_*`、`APPROVAL_TTL_SECONDS`                                               | 独立控制只读、写操作和 R1 操作是否也需要确认。当前仅`mock` 后端可用。               |
-| 持久化       | `STORAGE_BACKEND`、`SQLALCHEMY_DATABASE_URL`                                  | 选择内存或 SQLAlchemy 存储。SQLAlchemy 必须显式设置 DSN。                             |
+| 持久化       | `STORAGE_BACKEND`、`SQLALCHEMY_DATABASE_URL`、`DATABASE_SCHEMA_MODE`          | SQLAlchemy 启动时检测连接并校验 revision；可显式自动迁移。                            |
 | 日志         | `config/logging.yml`、可选 `LOG_LEVEL`                                        | YAML 设置等级、轮转数量和控制台输出；环境变量可临时覆盖等级。                         |
 
 `PERSONA_ACTIVE_PROBABILITY`、`PERSONA_GROUP_COOLDOWN_SECONDS`、`PERSONA_USER_COOLDOWN_SECONDS` 和 `PERSONA_MAX_ACTIVE_REPLIES_PER_HOUR` 用于主动插话的通用门控。普通成员的 `@` 短会话实际使用 `GUEST_GROUP_REPLY_COOLDOWN_SECONDS` 与 `GUEST_GROUP_MENTION_COOLDOWN_SECONDS`。
@@ -64,7 +66,7 @@ LLM_MODEL=gpt-4o-mini
 
 - 管理员：任意群 `@` 或私聊命中硬触发后立即回复，可选绕过限制与冷却。
 - 普通成员：仅允许群的 `@` 可新建会话；会话内仅同一发起人的自然消息可以续聊，最多两次回复。
-- 随机插话：由 `PERSONA_SOFT_TRIGGER_ENABLED` 控制，默认关闭；未配置可用 LLM 时也不会主动插话。
+- 随机插话：由 `PERSONA_SOFT_TRIGGER_ENABLED` 控制，默认关闭。开启后，未处于普通成员短会话的群消息会在静默、冷却和每小时额度检查后按 `PERSONA_ACTIVE_PROBABILITY` 抽样；未配置可用 LLM 时也不会主动插话。
 - 上下文：每个群独立，按时间线追加，超出条数、token 预算或 TTL 时淘汰最早内容。内存模式下重启会丢失；SQLAlchemy 模式可持久化。
 - 缓存：精确缓存键包含群、线性上下文和人格配置，避免跨群复用。稳定的前缀内容放在前面，便于上游 OpenAI 兼容服务的前缀缓存命中。
 
@@ -72,13 +74,13 @@ LLM_MODEL=gpt-4o-mini
 
 已声明并接入可选的 SQLAlchemy Store，涵盖群、聊天消息、去重记录、成员活跃度、人格会话和冷却、记忆摘要、LLM 缓存和指标、管理员、服务器、任务、审批与审计事件。
 
-启用持久化需要自行完成以下准备，项目不会自动执行：
+启用持久化需要自行完成以下准备：
 
 1. 安装 `aiomysql` 等目标数据库的异步驱动。
 2. 在 `.env` 设定 `STORAGE_BACKEND=sqlalchemy` 与真实的 `SQLALCHEMY_DATABASE_URL`。
-3. 从 `bot/` 目录显式执行 Alembic 迁移。
+3. 首次初始化将 `DATABASE_SCHEMA_MODE=migrate` 后启动机器人；启动会检测连接、取得 MySQL 迁移锁并执行 `alembic upgrade head`。
 
-仓库当前只有 Alembic 环境入口，尚未提交初始 revision；因此不能把“设定 DSN”当作已可用数据库。摘要表与 `summary_run` 已规划，但每日或手动群活跃成员总结的调度和执行功能尚未实现。
+默认 `DATABASE_SCHEMA_MODE=validate`，只检测连接并校验数据库 revision；空库或版本落后会拒绝启动，防止隐式改库。`migrate` 才会自动升级，失败也会终止启动。首个 Alembic revision 已覆盖当前 ORM 表结构；后续字段变更必须新增 revision。摘要表与 `summary_run` 已规划，但每日或手动群活跃成员总结的调度和执行功能尚未实现。
 
 ## 命令与风险控制
 
@@ -111,3 +113,6 @@ python -m bot.src.bot
 - 2026-07-26：新增 `requirements.txt` 与 YAML 可选人设配置；默认不注入自定义人设。
 - 2026-07-26：首次启动缺少 `.env` 时自动从示例创建，并提示填写必填连接与管理员信息。
 - 2026-07-26：新增 YAML 日志配置和根目录日志轮转，单文件最大 10MB，日志目录不纳入 Git。
+- 2026-07-26：新增使用文档，补齐 NoneBot FastAPI 驱动依赖与反向 WebSocket 监听配置。
+- 2026-07-26：修复普通群消息的随机回复入口、短会话续聊和主动回复限流记录。
+- 2026-07-26：SQLAlchemy 模式启动时增加连接与 revision 校验，`migrate` 模式可在 MySQL 锁保护下自动执行初始及后续 Alembic 迁移。

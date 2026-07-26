@@ -33,3 +33,9 @@ def test_memory_backend_does_not_require_database_url() -> None:
     )
 
     assert settings.sqlalchemy_database_url is None
+
+
+def test_database_schema_mode_defaults_to_validate() -> None:
+    settings = Settings(onebot_access_token="abcdefgh", whitelist_qq_ids="10001")
+
+    assert settings.database_schema_mode == "validate"

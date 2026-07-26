@@ -17,6 +17,7 @@ from bot.src.adapters.openai_compatible_llm import OpenAICompatibleLlmProvider
 from bot.src.adapters.sqlalchemy_store import SqlAlchemyStore
 from bot.src.config import Settings
 from bot.src.persistence.database import create_database_engine, create_session_factory
+from bot.src.persistence.schema import ensure_database_schema
 from bot.src.core.models import ServerTarget
 from bot.src.core.runtime import Runtime, init_runtime
 from bot.src.core.services.approval_service import ApprovalService
@@ -107,7 +108,13 @@ def build_runtime(
     targets = load_server_targets(servers_path)
     persona_options = load_persona_options(persona_path)
     if settings.storage_backend == "sqlalchemy":
-        engine = create_database_engine(settings.sqlalchemy_database_url or "")
+        database_url = settings.sqlalchemy_database_url or ""
+        ensure_database_schema(
+            database_url,
+            mode=settings.database_schema_mode,
+            migration_lock_timeout_seconds=settings.database_migration_lock_timeout_seconds,
+        )
+        engine = create_database_engine(database_url)
         store = SqlAlchemyStore(create_session_factory(engine))
     else:
         engine = None

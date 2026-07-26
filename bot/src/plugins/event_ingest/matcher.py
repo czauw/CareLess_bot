@@ -90,11 +90,20 @@ async def _handle_persona(bot: Bot, event: MessageEvent, message: Any) -> None:
     if not runtime.config.persona_enabled:
         return
     is_admin = runtime.auth_service.is_whitelisted(message.sender_id)
+    # 群消息持续进入线性上下文，使软触发能参考触发前的实际聊天。
+    context_appended = False
+    if runtime.config.persona_context_enabled and message.scope_type == ScopeType.GROUP:
+        await runtime.context_service.append(message)
+        context_appended = True
+
     record_gate_reply = False
+    group_conversation_reply = False
 
     if is_admin:
         # 管理员只在 @ 或私聊时即时触发；默认绕过群白名单和冷却。
         if not (message.is_at_bot or message.scope_type == ScopeType.PRIVATE):
+            return
+        if not runtime.config.persona_hard_trigger_enabled:
             return
         if (
             message.scope_type == ScopeType.GROUP
@@ -119,15 +128,27 @@ async def _handle_persona(bot: Bot, event: MessageEvent, message: Any) -> None:
         allowed_groups = runtime.config.allowed_group_ids
         if allowed_groups and message.scope_id not in allowed_groups:
             return
-        decision = await runtime.group_conversation_service.evaluate(message)
-        if not decision.should_reply:
+        if message.is_at_bot and not runtime.config.persona_hard_trigger_enabled:
             return
 
-    if runtime.config.persona_context_enabled:
+        conversation = await runtime.group_conversation_service.evaluate(message)
+        if conversation.should_reply:
+            # 普通成员的 @ 和后续短会话是显式会话，不依赖随机插话开关。
+            if not runtime.config.persona_hard_trigger_enabled:
+                return
+            group_conversation_reply = True
+        elif message.is_at_bot:
+            # 被群级回复或艾特冷却拦截的 @ 不能回退成随机触发。
+            return
+        else:
+            # 不在短会话中的普通群消息才参与主动回复抽样。
+            decision = runtime.persona_gate.evaluate(message)
+            if not decision.should_reply:
+                return
+            record_gate_reply = True
+
+    if runtime.config.persona_context_enabled and not context_appended:
         await runtime.context_service.append(message)
-    decision = runtime.persona_gate.evaluate(message)
-    if not decision.should_reply:
-        return
     context = (
         await runtime.context_service.get_recent(
             message.scope_id,
@@ -141,7 +162,7 @@ async def _handle_persona(bot: Bot, event: MessageEvent, message: Any) -> None:
         await _send(bot, event, response)
         if runtime.config.persona_context_enabled:
             await runtime.context_service.append_bot_reply(message, response)
-        if not is_admin and message.scope_type == ScopeType.GROUP:
+        if group_conversation_reply:
             await runtime.group_conversation_service.record_reply(message)
         elif record_gate_reply:
             runtime.persona_gate.record_reply(message)

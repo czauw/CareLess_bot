@@ -25,7 +25,7 @@ target_metadata = Base.metadata
 
 def database_url() -> str:
     """读取运行时 DSN，避免把任何真实数据库信息提交进仓库。"""
-    value = os.environ.get("SQLALCHEMY_DATABASE_URL")
+    value = config.attributes.get("database_url") or os.environ.get("SQLALCHEMY_DATABASE_URL")
     if not value:
         raise RuntimeError("SQLALCHEMY_DATABASE_URL 未设置，不能执行数据库迁移")
     return value
