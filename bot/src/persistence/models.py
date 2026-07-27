@@ -67,6 +67,7 @@ class ChatMessage(Base):
     normalized_text: Mapped[str] = mapped_column(Text, nullable=False)
     message_type: Mapped[str] = mapped_column(String(24), default="text", nullable=False)
     reply_to_message_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    at_user_ids_json: Mapped[list[str] | None] = mapped_column(JSON, nullable=True)
     is_at_bot: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     sent_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     received_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, nullable=False)

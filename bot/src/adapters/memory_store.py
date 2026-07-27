@@ -81,6 +81,10 @@ class MemoryStore:
         items = list(ctx)
         return items[-limit:]
 
+    async def is_bot_message(self, scope_id: str, message_id: str) -> bool:
+        ctx = self._contexts.get(scope_id, collections.deque())
+        return any(item.message_id == message_id and item.sender_id == "bot" for item in ctx)
+
     def _evict_expired(self, scope_id: str) -> None:
         """淘汰过期消息。"""
         ctx = self._contexts.get(scope_id)

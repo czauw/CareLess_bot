@@ -83,6 +83,7 @@ class NormalizedMessage:
     reply_to: str | None
     is_at_bot: bool
     created_at: datetime
+    at_user_ids: frozenset[str] = field(default_factory=frozenset)
 
 
 # ============================================================

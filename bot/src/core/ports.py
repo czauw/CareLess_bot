@@ -47,6 +47,10 @@ class Store(Protocol):
         """获取作用域的最近 N 条上下文消息。"""
         ...
 
+    async def is_bot_message(self, scope_id: str, message_id: str) -> bool:
+        """判断真实平台消息 ID 是否属于该作用域中的机器人回复。"""
+        ...
+
     # -- 运维任务 --
     async def save_job(self, job: OperationJob) -> None:
         """保存或更新任务。"""

@@ -139,6 +139,19 @@ def test_context_does_not_mix_group_and_private_with_same_id() -> None:
     assert [message.text for message in private] == ["私聊消息"]
 
 
+def test_bot_reply_context_does_not_invent_qq_reply_relation() -> None:
+    async def run() -> NormalizedMessage:
+        context = ContextService(MemoryStore())
+        trigger = _message(ScopeType.GROUP, "20001", "原消息")
+        await context.append_bot_reply(trigger, "直接发送的回复", message_id="bot-1")
+        return (await context.get_recent("20001", scope_type=ScopeType.GROUP))[0]
+
+    reply = asyncio.run(run())
+
+    assert reply.sender_id == "bot"
+    assert reply.reply_to is None
+
+
 def test_responder_does_not_apply_a_character_length_limit() -> None:
     class LongReplyLlm:
         async def chat(self, **_: object) -> str:
@@ -191,6 +204,8 @@ def test_soft_trigger_records_cooldown_after_successful_reply() -> None:
         user_cooldown_seconds=60,
         max_active_replies_per_hour=3,
         soft_trigger_enabled=True,
+        quiet_start="00:00",
+        quiet_end="00:00",
     )
     message = _message(ScopeType.GROUP, "20001", "今天真热", sender_id="200")
 
@@ -238,7 +253,11 @@ def test_responder_parses_multiple_messages_and_uses_exact_cache() -> None:
             return '{"messages":["first, relax!", "second message"]}'
 
     llm = CountingLlm()
-    responder = Responder(llm, cache_ttl_seconds=60)
+    responder = Responder(
+        llm,
+        cache_ttl_seconds=60,
+        now_provider=lambda: datetime(2026, 7, 27, 23, 0, tzinfo=UTC),
+    )
     trigger = _message(ScopeType.GROUP, "20001", "别急", is_at_bot=True)
 
     first = asyncio.run(responder.generate(trigger, [trigger]))
@@ -281,9 +300,10 @@ def test_responder_appends_current_time_at_the_end_of_user_prompt() -> None:
     trigger = _message(ScopeType.PRIVATE, "10001", "test")
 
     assert asyncio.run(responder.generate(trigger, [trigger])) == ["ok"]
-    assert llm.messages[1]["content"].endswith(
-        "信息补充，现在是2026-07-26-22-05，你可能会需要它。"
-    )
+    assert llm.messages[0]["content"] == responder.PRIVATE_SYSTEM_PROMPT
+    assert "<private_conversation>" in llm.messages[1]["content"]
+    assert "<group_scene>" not in llm.messages[1]["content"]
+    assert llm.messages[1]["content"].endswith("信息补充，现在是2026-07-26 22:05:00。")
 
 
 def test_reply_scheduler_replaces_a_waiting_scope_task() -> None:
@@ -308,6 +328,39 @@ def test_reply_scheduler_replaces_a_waiting_scope_task() -> None:
         await asyncio.sleep(0)
         await asyncio.sleep(0)
         assert delivered == ["new"]
+        await scheduler.close()
+
+    asyncio.run(run())
+
+
+def test_reply_scheduler_queues_latest_message_while_generation_is_active() -> None:
+    async def run() -> None:
+        scheduler = PersonaReplyScheduler(
+            enabled=False,
+            min_delay_seconds=0,
+            max_delay_seconds=0,
+            followup_min_delay_seconds=0,
+            followup_max_delay_seconds=0,
+        )
+        started = asyncio.Event()
+        release = asyncio.Event()
+        delivered: list[str] = []
+
+        async def active() -> None:
+            started.set()
+            await release.wait()
+            delivered.append("active")
+
+        async def queued() -> None:
+            delivered.append("queued")
+
+        scheduler.schedule("group:20001", active)
+        await started.wait()
+        assert scheduler.schedule("group:20001", queued)
+        release.set()
+        for _ in range(4):
+            await asyncio.sleep(0)
+        assert delivered == ["active", "queued"]
         await scheduler.close()
 
     asyncio.run(run())

@@ -31,6 +31,7 @@ def test_schema_declares_all_required_persistence_tables() -> None:
     assert "normalized_text" in ChatMessage.__table__.c
     assert "scope_type" in ChatMessage.__table__.c
     assert "scope_id" in ChatMessage.__table__.c
+    assert "at_user_ids_json" in ChatMessage.__table__.c
     assert ChatMessage.__table__.c.group_id.nullable
     assert "memory_version" in GroupMemorySummary.__table__.c
     assert "normalized_params" in OperationJobRecord.__table__.c
@@ -52,6 +53,14 @@ def test_unbounded_cached_response_alembic_revision_is_available() -> None:
     revision_file = Path("bot/alembic/versions/20260726_03_unbounded_cached_response.py")
     assert revision_file.is_file()
     assert 'revision = "20260726_03"' in revision_file.read_text(encoding="utf-8")
+
+
+def test_current_alembic_revision_persists_message_mentions() -> None:
+    revision_file = Path("bot/alembic/versions/20260727_05_message_mentions.py")
+    assert revision_file.is_file()
+    content = revision_file.read_text(encoding="utf-8")
+    assert 'revision = "20260727_05"' in content
+    assert 'down_revision = "20260727_04"' in content
 
 
 def test_sqlalchemy_message_timestamps_are_restored_as_utc() -> None:

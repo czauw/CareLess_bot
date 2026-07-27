@@ -8,11 +8,12 @@
 
 - 统一接收群聊和私聊消息，并按 `message_id` 去重。
 - 白名单管理员可在任意群 `@` 机器人或私聊时立即得到人格回复；可分别配置是否绕过群白名单和冷却。
-- 普通成员仅能在允许群中 `@` 机器人开启短会话。一次会话最多两条机器人回复，回复与再次 `@` 冷却均按群独立。
+- 普通群消息以低概率触发一次 AI 场景检查；AI 可选择仍适合接话的真实消息并直接发言，也可保持沉默。
+- `@` 或引用机器人会开启按群管理的短会话窗口；窗口不绑定发起人，由 AI 判断接谁、聊什么或不回复。
 - 人格模型返回 JSON 消息列表：通常一条，必要时自然拆为至多三条 QQ 消息；保留自然标点，不设字符长度硬上限。
 - 每个群和私聊独立采用 15–30 秒异步拟人延迟；等待期出现新消息会替换旧回复，不伪造“正在输入”状态。
-- 持久化所有群聊和私聊记录，并按群或私聊对象隔离线性上下文，格式为 `QQ号: 消息`。默认保留 6 小时，最多 20K 近似 token、1000 条消息；机器人成功回复也会写回上下文。
-- 使用稳定 system prompt 加追加式上下文，帮助 OpenAI 兼容远程模型命中前缀缓存；另有同群、同上下文、同配置的短 TTL 精确回复缓存。
+- 持久化所有群聊和私聊记录，并按群或私聊对象隔离线性记忆。底层默认保留 6 小时、20K 近似 token、1000 条消息；每次群聊和私聊模型调用分别最多携带最近 60 条。
+- 群聊与私聊使用完全独立的 system prompt、动态标签和缓存键。固定提示词始终位于前缀；按时间追加的历史在后，候选目标和当前时间放在末尾，便于兼容服务命中前缀缓存。
 - 支持可选 OpenAI 兼容 LLM。只有 `LLM_ENABLED=true` 且同时配置 API 地址和密钥时才会发起远程调用。
 - 提供白名单运维命令、一次性审批码、审计记录和 mock Ops Gateway。当前不支持真实 Ops Gateway。
 - 提供 SQLAlchemy ORM、异步 Store 和 Alembic 入口。默认仍为内存存储，不会连接数据库。
@@ -47,14 +48,14 @@ LLM_MODEL=gpt-4o-mini
 | OneBot       | `ONEBOT_ACCESS_TOKEN`、`BOT_QQ_ID`                                            | 连接反向 WebSocket 的令牌和机器人 QQ 号。                                             |
 | 权限         | `WHITELIST_QQ_IDS`、`ALLOWED_GROUP_IDS`                                       | 白名单可执行管理命令；群白名单限制普通成员人格入口。                                  |
 | 总开关       | `BOT_ENABLED`、`ADMIN_COMMANDS_ENABLED`、`PERSONA_ENABLED`、`LLM_ENABLED` | 可整体关闭机器人、命令、人格或远程模型调用。                                          |
-| 人格会话     | `GUEST_CONVERSATION_*`、`GUEST_GROUP_*_COOLDOWN_SECONDS`                      | 配置普通成员会话上限、有效期，以及按群独立的回复和艾特冷却。上限由代码限制为 1 到 2。 |
+| 随机与会话   | `AMBIENT_*`、`PERSONA_SESSION_*`、`PERSONA_*_COOLDOWN_SECONDS`              | 配置群场景、AI 检查冷却、令牌桶、会话 TTL/轮次和目标用户冷却。                         |
 | 拟人回复     | `PERSONA_REPLY_DELAY_*`、`PERSONA_FOLLOWUP_DELAY_*`、`PERSONA_REPLY_MAX_MESSAGES` | 独立异步延迟、分段消息间隔与单轮最多三条实际 QQ 消息。                              |
-| 上下文与缓存 | `CONTEXT_*`、`RESPONSE_CACHE_*`                                               | 配置线性记忆预算、保留时间和精确回复缓存 TTL。                                        |
+| 上下文与缓存 | `GROUP_CONTEXT_MAX_MESSAGES`、`PRIVATE_CONTEXT_MAX_MESSAGES`、`CONTEXT_*`    | 配置每次模型携带条数、底层线性记忆预算与保留时间。                                    |
 | 运维         | `OPS_*`、`APPROVAL_TTL_SECONDS`                                               | 独立控制只读、写操作和 R1 操作是否也需要确认。当前仅`mock` 后端可用。               |
 | 持久化       | `STORAGE_BACKEND`、`SQLALCHEMY_DATABASE_URL`、`DATABASE_SCHEMA_MODE`          | SQLAlchemy 启动时检测连接并校验 revision；可显式自动迁移。                            |
 | 日志         | `config/logging.yml`、可选 `LOG_LEVEL`                                        | YAML 设置等级、单文件上限和控制台输出；环境变量可临时覆盖等级。                       |
 
-`PERSONA_ACTIVE_PROBABILITY`、`PERSONA_GROUP_COOLDOWN_SECONDS`、`PERSONA_USER_COOLDOWN_SECONDS` 和 `PERSONA_MAX_ACTIVE_REPLIES_PER_HOUR` 用于主动插话的通用门控。普通成员的 `@` 短会话实际使用 `GUEST_GROUP_REPLY_COOLDOWN_SECONDS` 与 `GUEST_GROUP_MENTION_COOLDOWN_SECONDS`。
+`PERSONA_ACTIVE_PROBABILITY` 只决定是否调用 AI 检查群场景。`AMBIENT_AI_CHECK_COOLDOWN_SECONDS` 在每次检查后生效，即使模型选择沉默；实际发送成功后才消耗令牌桶，并启动 `PERSONA_GROUP_COOLDOWN_SECONDS` 与目标用户的 `PERSONA_USER_COOLDOWN_SECONDS`。
 
 `config/persona.yml` 仅可覆盖人格门控、主动概率、通用冷却和静默时段。环境变量中显式设置的同名 `PERSONA_*` 值优先。会话、数据库、全模块开关等仍在 `.env` 中配置。
 
@@ -66,12 +67,14 @@ LLM_MODEL=gpt-4o-mini
 
 ## 人格触发与记忆
 
-- 管理员：任意群 `@` 或私聊命中硬触发后进入按作用域独立的延迟回复队列，可选绕过限制与冷却。
-- 普通成员：仅允许群的 `@` 可新建会话；会话内仅同一发起人的自然消息可以续聊，最多两轮逻辑回复；每轮通常发一条、最多三条实际 QQ 消息。
-- 输出：LLM 只返回 `{"messages":[...]}`；每项是一条自然 QQ 消息，默认允许标点。延迟期内同一作用域的新消息会取消并替换尚未发送的旧任务，延迟结束后再从数据库读取最新上下文。
-- 随机插话：由 `PERSONA_SOFT_TRIGGER_ENABLED` 控制，默认关闭。开启后，未处于普通成员短会话的群消息会在静默、冷却和每小时额度检查后按 `PERSONA_ACTIVE_PROBABILITY` 抽样；未配置可用 LLM 时也不会主动插话。
-- 上下文：每个群和每个私聊对象独立，按时间线追加，超出条数、token 预算或 TTL 时淘汰最早内容。SQLAlchemy 模式从持久化聊天记录读取，并将 MySQL 无时区 `DATETIME` 按 UTC 还原，避免 TTL 错误淘汰刚收到的消息；内存模式下重启会丢失。
-- 缓存：精确缓存键包含群、线性上下文和人格配置，避免跨群复用。稳定的前缀内容放在前面，便于上游 OpenAI 兼容服务的前缀缓存命中；当前时间会按 `TIMEZONE` 作为最后一条“信息补充”追加到 user prompt，避免动态时间破坏此前的稳定前缀。
+- 明确互动：群内 `@` 或引用机器人直接进入 AI 会话判断并强制开启群级窗口，不受随机概率、检查/发言冷却和令牌额度限制；普通成员私聊仍默认关闭，管理员私聊保留硬触发降级路径。
+- 随机插话：默认 1% 概率只触发一次 AI 检查。模型最多携带最近 60 条群聊用于理解，但只能选择最近 15 条、180 秒内且不跨越 90 秒聊天空档的消息作为回复目标；一次完成目标选择、回复生成和会话状态判断，并可返回 `no_reply`。
+- 会话窗口：随机回复成功后自动打开窗口，`@` 或引用机器人也会打开。窗口默认 120 秒、提问时 180 秒，最多 4 次机器人回复、8 次 AI 检查；窗口内不限制群友对象。
+- 发送与并发：机器人始终直接发送文本，不使用 QQ 回复/引用消息段。同一群只运行一个人格模型任务；生成期间的新消息会合并为最新后续任务，明确互动会使尚未发送的随机回复失效。
+- 成本：每群初始 2 个随机回复令牌，默认每 20 分钟恢复 1 个；`no_reply` 不消耗回复令牌。未配置可用 LLM 时不进行随机检查。
+- 上下文：每个群和每个私聊对象独立，按时间线追加。群聊和私聊每次分别最多取 60 条，仍受 20K token 和 6 小时 TTL 总约束。SQLAlchemy 模式从持久化记录读取；内存模式重启后清空。
+- 提示词隔离：群聊使用匿名群成员、引用关系、候选目标和群会话规则；私聊只使用“对方/你”的一对一记录，明确禁止引用或假设群聊内容。两者不共享精确响应缓存键。
+- 前缀缓存：群成员匿名 ID 由群号和发送者稳定生成，不因 60 条窗口滑动而重新编号；候选目标列表和当前时间位于历史之后。窗口尚未满时，新消息保持追加式前缀；满 60 条淘汰最旧消息后，动态历史部分需要重新匹配，但固定 system/task 前缀仍保持不变。
 
 ## 数据库状态
 
@@ -83,7 +86,7 @@ LLM_MODEL=gpt-4o-mini
 2. 在 `.env` 设定 `STORAGE_BACKEND=sqlalchemy` 与真实的 `SQLALCHEMY_DATABASE_URL`。
 3. 首次初始化将 `DATABASE_SCHEMA_MODE=migrate` 后启动机器人；启动会检测连接、取得 MySQL 迁移锁并执行 `alembic upgrade head`。
 
-默认 `DATABASE_SCHEMA_MODE=validate`，只检测连接并校验数据库 revision；空库或版本落后会拒绝启动，防止隐式改库。`migrate` 才会自动升级，失败也会终止启动。当前最新 revision 为 `20260726_03`：`chat_message` 以 `scope_type + scope_id` 区分群聊和私聊，旧群聊记录会自动回填为 `group` scope；精确回复缓存也使用 `TEXT`，不会限制回复长度。MySQL 的 DDL 不可事务回滚，因此此迁移会检测并续作上次中断后已执行的列变更。后续字段变更必须新增 revision。摘要表与 `summary_run` 已规划，但每日或手动群活跃成员总结的调度和执行功能尚未实现。
+默认 `DATABASE_SCHEMA_MODE=validate`，只检测连接并校验数据库 revision；空库或版本落后会拒绝启动。当前最新 revision 为 `20260727_05`：除作用域化聊天记录和无长度回复缓存外，还修复活跃计数默认值，并持久化引用搭话所需的结构化 `@` 元数据。已有数据库需用一次 `migrate` 升级，成功后改回 `validate`。
 
 ## 命令与风险控制
 
@@ -103,7 +106,7 @@ python -m bot.src.bot
 
 ## 验证状态
 
-- `python -m pytest -q`：14 passed
+- `python -m pytest -q`：45 passed
 - `python -m compileall -q bot tests`：通过
 
 ## 实现记录
@@ -127,3 +130,5 @@ python -m bot.src.bot
 - 2026-07-26：人格回复改为 JSON 消息列表，支持一轮最多三条 QQ 消息与按作用域 15–30 秒异步拟人延迟。
 - 2026-07-26：日志文件改为按启动时间与序号命名，超过 10MB 时递增序号轮转，并统一记录时间、等级和模块名。
 - 2026-07-26：人格提示词在聊天上下文末尾追加按 `TIMEZONE` 格式化的当前时间信息，保留稳定提示词和线性上下文前缀的缓存命中条件。
+- 2026-07-27：随机搭话升级为单次 AI 场景决策、真实消息引用、独立检查/发言冷却和令牌桶；新增对象不限的群级短会话窗口，并保持固定人设提示词前缀不变。
+- 2026-07-27：群聊和私聊提示词、上下文标签及缓存键彻底隔离；两类调用各携带约 60 条历史，群聊另保留独立的 15 条近期可回复目标窗口，并优化追加式前缀缓存稳定性。

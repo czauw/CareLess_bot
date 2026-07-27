@@ -35,18 +35,25 @@ class ContextService:
         """将消息追加到对应作用域的上下文窗口。"""
         await self._store.append_context(message)
 
-    async def append_bot_reply(self, trigger: NormalizedMessage, text: str) -> None:
+    async def append_bot_reply(
+        self,
+        trigger: NormalizedMessage,
+        text: str,
+        *,
+        message_id: str | None = None,
+        reply_to: str | None = None,
+    ) -> None:
         """将成功发送的机器人回复写入同一线性上下文。"""
         await self.append(
             NormalizedMessage(
-                message_id=f"bot-{uuid.uuid4().hex}",
+                message_id=message_id or f"bot-{uuid.uuid4().hex}",
                 sender_id="bot",
                 sender_alias="bot",
                 scope_type=trigger.scope_type,
                 scope_id=trigger.scope_id,
                 text=text,
                 message_type="text",
-                reply_to=trigger.message_id,
+                reply_to=reply_to,
                 is_at_bot=False,
                 created_at=datetime.now(UTC),
             )

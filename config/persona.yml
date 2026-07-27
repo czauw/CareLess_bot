@@ -13,18 +13,15 @@ persona:
   # 是否允许 @ 机器人或私聊等硬触发回复。
   hard_trigger_enabled: true
 
-  # 是否允许按概率主动回复。建议保持 false，普通成员改由 @ 开启短会话。
-  soft_trigger_enabled: false
+  # 是否允许低概率调用 AI 检查近期群聊；回复仍受冷却和令牌桶限制。
+  soft_trigger_enabled: true
 
-  # 基础主动概率（候选消息的 2%）
-  active_probability: 0.02
+  # 基础主动概率（候选消息的 1%）
+  active_probability: 0.01
 
-  # 主动插话的通用冷却（秒）；普通成员 @ 短会话使用 .env 的 GUEST_GROUP_* 冷却。
+  # 随机搭话成功发送后的群冷却，以及同一目标用户的再次选择冷却（秒）。
   group_cooldown_seconds: 120
   user_cooldown_seconds: 300
-
-  # 每小时最大主动回复数
-  max_active_replies_per_hour: 3
 
   # 夜间静默时段（时区由 TIMEZONE 决定）
   quiet_start: "00:30"

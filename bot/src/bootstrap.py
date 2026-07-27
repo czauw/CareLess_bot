@@ -29,9 +29,10 @@ from bot.src.plugins.admin_command.handler import CommandHandler
 from bot.src.plugins.admin_command.parser import CommandParser
 from bot.src.plugins.persona.context import ContextService
 from bot.src.plugins.persona.gate import PersonaGate
+from bot.src.plugins.persona.interaction import GroupInteractionCoordinator
 from bot.src.plugins.persona.reply_scheduler import PersonaReplyScheduler
 from bot.src.plugins.persona.responder import Responder
-from bot.src.plugins.persona.session import GroupConversationService
+from bot.src.plugins.persona.scene import GroupSceneBuilder
 
 
 VALID_CAPABILITIES = frozenset({
@@ -134,10 +135,16 @@ def build_runtime(
     runtime.ops_gateway = gateway
     has_llm = bool(settings.llm_enabled and settings.llm_api_base and settings.llm_api_key)
     runtime.llm_provider = (
-        OpenAICompatibleLlmProvider(settings.llm_api_base, settings.llm_api_key, settings.llm_model)
+        OpenAICompatibleLlmProvider(
+            settings.llm_api_base,
+            settings.llm_api_key,
+            settings.llm_model,
+            timeout_seconds=settings.llm_timeout_seconds,
+        )
         if has_llm
         else NullLlmProvider()
     )
+    runtime.has_llm = has_llm
     runtime.auth_service = AuthService(settings.whitelist_qq_ids)
     runtime.approval_service = ApprovalService(store, settings.approval_ttl_seconds)
     runtime.job_service = JobService(store)
@@ -149,12 +156,36 @@ def build_runtime(
         max_tokens=settings.context_max_tokens,
         ttl_seconds=settings.context_ttl_seconds,
     )
-    runtime.group_conversation_service = GroupConversationService(
-        store,
-        max_replies=settings.guest_conversation_max_replies,
-        session_ttl_seconds=settings.guest_conversation_ttl_seconds,
-        reply_cooldown_seconds=settings.guest_group_reply_cooldown_seconds,
-        mention_cooldown_seconds=settings.guest_group_mention_cooldown_seconds,
+    runtime.group_scene_builder = GroupSceneBuilder(
+        context_max_messages=settings.group_context_max_messages,
+        target_max_messages=settings.ambient_max_messages,
+        target_max_age_seconds=settings.ambient_max_age_seconds,
+        target_gap_seconds=settings.ambient_scene_gap_seconds,
+    )
+    runtime.group_interaction_coordinator = GroupInteractionCoordinator(
+        soft_trigger_enabled=(
+            bool(persona_value(settings, persona_options, "soft_trigger_enabled")) and has_llm
+        ),
+        trigger_probability=(
+            persona_value(settings, persona_options, "active_probability") if has_llm else 0.0
+        ),
+        ai_check_cooldown_seconds=settings.ambient_ai_check_cooldown_seconds,
+        ambient_reply_cooldown_seconds=persona_value(
+            settings, persona_options, "group_cooldown_seconds"
+        ),
+        bucket_capacity=settings.ambient_bucket_capacity,
+        bucket_refill_seconds=settings.ambient_bucket_refill_seconds,
+        same_user_cooldown_seconds=persona_value(
+            settings, persona_options, "user_cooldown_seconds"
+        ),
+        session_ttl_seconds=settings.persona_session_ttl_seconds,
+        session_question_ttl_seconds=settings.persona_session_question_ttl_seconds,
+        session_max_bot_turns=settings.persona_session_max_bot_turns,
+        session_max_ai_checks=settings.persona_session_max_ai_checks,
+        max_new_messages_during_generation=settings.ambient_max_new_messages_during_generation,
+        quiet_start=persona_value(settings, persona_options, "quiet_start"),
+        quiet_end=persona_value(settings, persona_options, "quiet_end"),
+        timezone=settings.timezone,
     )
     runtime.persona_gate = PersonaGate(
         # Null LLM 仅服务硬触发降级，不能参与主动回复。

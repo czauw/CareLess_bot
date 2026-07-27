@@ -30,6 +30,7 @@ class Runtime:
     store: Store | None = None
     ops_gateway: OpsGateway | None = None
     llm_provider: LlmProvider | None = None
+    has_llm: bool = False
     auth_service: AuthService | None = None
     approval_service: ApprovalService | None = None
     job_service: JobService | None = None
@@ -39,7 +40,8 @@ class Runtime:
     persona_gate: Any = None
     responder: Any = None
     persona_reply_scheduler: Any = None
-    group_conversation_service: Any = None
+    group_interaction_coordinator: Any = None
+    group_scene_builder: Any = None
     command_handler: Any = None
     server_targets: dict[str, Any] = field(default_factory=dict)
 

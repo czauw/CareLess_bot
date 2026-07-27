@@ -80,6 +80,8 @@ class PersonaGate:
         hour = now.hour  # UTC; 实际使用时需根据时区转换（MVP 先简化）
         start_h, _ = map(int, self._quiet_start.split(":"))
         end_h, _ = map(int, self._quiet_end.split(":"))
+        if start_h == end_h:
+            return False
         if start_h < end_h:
             return start_h <= hour < end_h
         return hour >= start_h or hour < end_h

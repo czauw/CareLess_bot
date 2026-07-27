@@ -66,8 +66,8 @@ class Settings(BaseSettings):
     persona_context_enabled: bool = Field(default=True)
     # 两种人格触发可分别关闭；私聊也受硬触发开关控制。
     persona_hard_trigger_enabled: bool = Field(default=True)
-    # 默认关闭随机插话；普通成员通过 @ 开启至多两回合的短会话。
-    persona_soft_trigger_enabled: bool = Field(default=False)
+    # 低概率随机检查；仍受独立 AI 冷却、发言冷却和令牌桶限制。
+    persona_soft_trigger_enabled: bool = Field(default=True)
     # LLM_ENABLED=false 时强制使用安全的 Null LLM 降级实现。
     llm_enabled: bool = Field(default=True)
     # AUDIT_ENABLED=false 时不写审计事件，仅建议用于本地无状态调试。
@@ -96,11 +96,26 @@ class Settings(BaseSettings):
     admin_bypass_cooldowns: bool = Field(default=True)
     # 普通成员仅在群白名单内可用，私聊默认不响应。
     guest_private_reply_enabled: bool = Field(default=False)
+    # 以下旧配置保留兼容读取；群聊已改用按群开放的 AI 会话窗口。
     guest_conversation_max_replies: int = Field(default=2, ge=1, le=2)
     guest_conversation_ttl_seconds: int = Field(default=300, ge=10, le=3600)
     guest_group_reply_cooldown_seconds: int = Field(default=120, ge=0)
     guest_group_mention_cooldown_seconds: int = Field(default=300, ge=0)
     persona_max_active_replies_per_hour: int = Field(default=3, ge=0)
+    # 群聊模型携带较长的理解上下文，但只能从较短的近期窗口选择回复目标。
+    group_context_max_messages: int = Field(default=60, ge=2, le=300)
+    ambient_max_messages: int = Field(default=15, ge=2, le=100)
+    ambient_max_age_seconds: int = Field(default=180, ge=10, le=3600)
+    ambient_scene_gap_seconds: int = Field(default=90, ge=1, le=3600)
+    ambient_ai_check_cooldown_seconds: float = Field(default=30, ge=0, le=3600)
+    ambient_bucket_capacity: int = Field(default=2, ge=0, le=20)
+    ambient_bucket_refill_seconds: float = Field(default=1200, ge=1, le=86400)
+    ambient_max_new_messages_during_generation: int = Field(default=5, ge=0, le=100)
+    # 会话窗口按群开放，不绑定回复对象；AI 决定接谁或保持沉默。
+    persona_session_ttl_seconds: int = Field(default=120, ge=10, le=3600)
+    persona_session_question_ttl_seconds: int = Field(default=180, ge=10, le=3600)
+    persona_session_max_bot_turns: int = Field(default=4, ge=1, le=20)
+    persona_session_max_ai_checks: int = Field(default=8, ge=1, le=50)
     # 拟人回复延迟使用独立后台任务，不阻塞其他消息处理。
     persona_reply_delay_enabled: bool = Field(default=True)
     persona_reply_delay_min_seconds: float = Field(default=15.0, ge=0.0, le=600.0)
@@ -118,6 +133,7 @@ class Settings(BaseSettings):
     context_max_tokens: int = Field(default=20_000, ge=256, le=100_000)
     context_max_messages: int = Field(default=1_000, ge=1)
     context_ttl_seconds: int = Field(default=21_600, ge=0)
+    private_context_max_messages: int = Field(default=60, ge=1, le=300)
     # 精确回复缓存只命中相同群、相同上下文和相同配置，避免串群。
     response_cache_enabled: bool = Field(default=True)
     response_cache_ttl_seconds: int = Field(default=60, ge=0, le=3600)
@@ -138,8 +154,9 @@ class Settings(BaseSettings):
     llm_api_base: str | None = Field(default=None)
     llm_api_key: str | None = Field(default=None)
     llm_model: str = Field(default="gpt-4o-mini")
+    llm_timeout_seconds: float = Field(default=30.0, ge=5.0, le=120.0)
     # 机器人短回复默认关闭思考模式，48 token 足够生成最终正文。
-    llm_max_tokens: int = Field(default=48, ge=16, le=512)
+    llm_max_tokens: int = Field(default=160, ge=16, le=512)
     # DeepSeek 等兼容服务支持 thinking 参数；短回复默认关闭以避免 token 被推理占尽。
     llm_thinking_enabled: bool = Field(default=False)
 
@@ -178,6 +195,8 @@ class Settings(BaseSettings):
             raise ValueError("PERSONA_REPLY_DELAY_MIN_SECONDS 不能大于最大延迟。")
         if self.persona_followup_delay_min_seconds > self.persona_followup_delay_max_seconds:
             raise ValueError("PERSONA_FOLLOWUP_DELAY_MIN_SECONDS 不能大于最大延迟。")
+        if self.ambient_scene_gap_seconds > self.ambient_max_age_seconds:
+            raise ValueError("AMBIENT_SCENE_GAP_SECONDS 不能大于 AMBIENT_MAX_AGE_SECONDS。")
         return self
 
     @property

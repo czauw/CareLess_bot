@@ -35,14 +35,18 @@ class PersonaReplyScheduler:
         self._followup_min_delay = followup_min_delay_seconds
         self._followup_max_delay = followup_max_delay_seconds
         self._pending: dict[str, asyncio.Task[None]] = {}
+        self._queued: dict[str, ReplyCallback] = {}
         self._active_scopes: set[str] = set()
         self._tasks: set[asyncio.Task[None]] = set()
 
     def schedule(self, scope_key: str, callback: ReplyCallback) -> bool:
         """延迟执行回调；同一作用域的等待任务会被较新的消息替换。"""
         if scope_key in self._active_scopes:
-            logger.debug("人格回复正在发送，保留当前任务 scope=%s", scope_key)
-            return False
+            # 模型请求期间的新消息保留为下一次判断；同一群只保留最新回调，
+            # 避免并发回复乱序，也避免明确 @ 在随机判断期间被直接丢掉。
+            self._queued[scope_key] = callback
+            logger.debug("人格回复正在生成，已保留最新后续任务 scope=%s", scope_key)
+            return True
 
         if previous := self._pending.get(scope_key):
             previous.cancel()
@@ -65,6 +69,7 @@ class PersonaReplyScheduler:
         if tasks:
             await asyncio.gather(*tasks, return_exceptions=True)
         self._pending.clear()
+        self._queued.clear()
         self._active_scopes.clear()
 
     async def _run(self, scope_key: str, callback: ReplyCallback) -> None:
@@ -87,3 +92,5 @@ class PersonaReplyScheduler:
             if self._pending.get(scope_key) is current_task:
                 self._pending.pop(scope_key, None)
             self._active_scopes.discard(scope_key)
+            if callback := self._queued.pop(scope_key, None):
+                self.schedule(scope_key, callback)

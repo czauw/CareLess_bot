@@ -80,7 +80,7 @@ DATABASE_SCHEMA_MODE=migrate
 
 首次启动使用 `migrate`：机器人会先执行连接检测，再取得 MySQL advisory lock，并自动执行 Alembic `upgrade head` 创建或升级表结构。迁移失败时机器人不会继续启动。
 
-成功初始化后，把 `DATABASE_SCHEMA_MODE` 改回 `validate`。该默认模式只检测连接并确认数据库 revision 与代码的最新 revision 一致；空库、落后版本或未来版本都会拒绝启动，不会隐式改表。当前最新 revision `20260726_03` 会把 `chat_message` 升级为群聊/私聊通用 scope，并把精确回复缓存升级为不限制字符数的 `TEXT`；旧群聊记录自动回填为 `group`。若 MySQL 在 DDL 间中断，下一次 `migrate` 会识别已完成的列变更并继续。多实例部署时只应让一个实例使用 `migrate`。
+成功初始化后，把 `DATABASE_SCHEMA_MODE` 改回 `validate`。当前最新 revision 是 `20260727_05`，包含群聊/私聊 scope、无长度回复缓存、活跃计数默认值修复和结构化 `@` 元数据。旧数据库必须先以 `migrate` 启动一次；多实例部署时只应让一个实例执行迁移。
 
 ## 人格配置
 
@@ -93,11 +93,19 @@ profile:
 
 将 `enabled` 改为 `true` 后，可以填写 `name`、`identity`、`background`、`traits`、`speaking_style` 与 `boundaries`。这些字段会被加入稳定系统提示词；不要在 YAML 中填写 API 密钥或真实个人敏感信息。
 
-普通成员必须在允许群中 `@` 机器人才能开始会话。每次会话最多两轮逻辑回复，群级回复与再次艾特均受 `.env` 中的 `GUEST_GROUP_*_COOLDOWN_SECONDS` 控制。单轮回复由模型输出 JSON `messages` 列表，通常发送一条、必要时最多三条实际 QQ 消息；后续消息间会有 1–4 秒自然停顿。管理员可以按配置绕过群白名单和冷却。SQLAlchemy 模式会持久化所有群聊、私聊文本和机器人成功回复；模型分别按群号或私聊对象从数据库读取最近上下文，不会跨作用域混用。
+普通消息默认以 1% 概率触发一次 AI 场景检查，概率命中不等于必定回复。模型最多携带最近 60 条群消息帮助理解多人对话，但只有最近 15 条、180 秒内且不跨越 90 秒空档的消息可以成为回复目标。一次调用同时选择目标、生成内容并决定会话状态；无自然机会时返回 `no_reply`。
+
+随机回复成功、群内 `@` 或引用机器人都会开启短会话窗口。明确互动会强制进入窗口，不受随机概率、AI 检查冷却、随机发言冷却或令牌额度限制，也不消耗随机发言令牌。窗口按群管理、不绑定发起人，管理员和普通成员的后续消息都会进入窗口判断。窗口默认持续 120 秒；AI 提问时可持续 180 秒，最多 4 次机器人回复和 8 次 AI 检查。窗口内新消息仍由 AI 判断接谁或保持沉默。同一群的模型任务串行执行，等待期间的新消息会合并，避免并发重复回复。机器人输出始终直接发送文本，不使用 QQ 回复/引用消息段。
+
+群聊和私聊提示词完全分开。群聊使用稳定的群内匿名成员 ID、消息 ID、引用和候选目标；私聊只包含当前对象与机器人的一对一记录，最多携带 60 条，并明确禁止混入群聊信息。可分别用 `GROUP_CONTEXT_MAX_MESSAGES` 和 `PRIVATE_CONTEXT_MAX_MESSAGES` 调整。两者仍受 `CONTEXT_MAX_TOKENS` 与 `CONTEXT_TTL_SECONDS` 约束。
+
+为提高上游前缀缓存命中，固定 system/task 提示词放在最前，历史按时间顺序追加；群成员匿名 ID 在同一群内保持稳定。会变化的候选目标列表和当前时间位于末尾。达到 60 条并淘汰最旧消息时，动态历史前缀不可避免会变化，但群/私聊各自的固定提示词前缀不会变化。
 
 `.env` 中可通过 `PERSONA_REPLY_DELAY_ENABLED` 开关延迟；`PERSONA_REPLY_DELAY_MIN_SECONDS` 与 `PERSONA_REPLY_DELAY_MAX_SECONDS` 默认是 15 和 30。`PERSONA_FOLLOWUP_DELAY_*` 控制同一轮后续消息的短停顿，`PERSONA_REPLY_MAX_MESSAGES` 固定上限为 3。项目不伪造 QQ “正在输入”状态。
 
-若希望机器人偶尔主动插话，将 `.env` 的 `PERSONA_SOFT_TRIGGER_ENABLED` 设为 `true`，并在 `config/persona.yml` 设置 `active_probability`。每条未艾特且不在短会话中的允许群消息都会在静默、群/用户冷却和每小时额度检查后参与概率抽样；例如 `0.02` 表示满足前置条件的消息有 2% 概率触发。主动回复成功后会记录冷却与额度。
+随机检查由 `PERSONA_SOFT_TRIGGER_ENABLED` 控制，示例配置默认开启；没有可用 LLM 时自动关闭。`AMBIENT_AI_CHECK_COOLDOWN_SECONDS` 限制检查频率，`PERSONA_GROUP_COOLDOWN_SECONDS` 只在实际发言后生效。每群使用容量 2、每 20 分钟恢复 1 个的令牌桶；AI 返回 `no_reply` 不消耗令牌。同一目标用户默认 300 秒内不会被再次主动选择。
+
+`LLM_TIMEOUT_SECONDS` 默认 30 秒。超时不会自动重试，避免一次群聊判断产生额外模型调用；失败会记录完整异常，后续新消息仍可重新触发判断。
 
 ## 管理命令
 

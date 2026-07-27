@@ -88,6 +88,7 @@ class SqlAlchemyStore:
                         normalized_text=message.text,
                         message_type=message.message_type[:24],
                         reply_to_message_id=message.reply_to,
+                        at_user_ids_json=sorted(message.at_user_ids),
                         is_at_bot=message.is_at_bot,
                         sent_at=message.created_at,
                     )
@@ -117,6 +118,19 @@ class SqlAlchemyStore:
             )
             rows = list((await session.scalars(statement)).all())
         return [self._to_message(row) for row in reversed(rows)]
+
+    async def is_bot_message(self, scope_id: str, message_id: str) -> bool:
+        scope_type_value, separator, actual_scope_id = scope_id.partition(":")
+        if not separator:
+            return False
+        async with self._sessions() as session:
+            statement = select(ChatMessage.id).where(
+                ChatMessage.scope_type == scope_type_value,
+                ChatMessage.scope_id == actual_scope_id,
+                ChatMessage.platform_message_id == message_id,
+                ChatMessage.sender_id == "bot",
+            )
+            return (await session.scalar(statement)) is not None
 
     # ---- 运维任务与审批 ----
 
@@ -340,6 +354,7 @@ class SqlAlchemyStore:
             reply_to=record.reply_to_message_id,
             is_at_bot=record.is_at_bot,
             created_at=sent_at,
+            at_user_ids=frozenset(getattr(record, "at_user_ids_json", None) or []),
         )
 
     @staticmethod
